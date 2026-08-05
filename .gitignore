@@ -1,0 +1,6 @@
+# Per-run output
+Tools/Black Face Fix/Logs/
+Tools/Black Face Fix/Output/
+
+# Converted textures land in the MO2 mods folder, never here
+BlackFaceFix Output/
