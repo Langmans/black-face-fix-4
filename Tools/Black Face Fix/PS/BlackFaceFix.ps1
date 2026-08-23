@@ -69,6 +69,11 @@ $root      = Split-Path -Parent $PSScriptRoot
 $timestamp = Get-Date -Format 'yyyy-MM-dd_HHmmss'
 $logDir    = Join-Path $root 'Logs'
 
+# Set by the GUI branch: it writes its own per-scan log, so the finally block
+# at the bottom must not add a second one. Initialised here because Set-StrictMode
+# throws on reading a variable that was never assigned.
+$script:GuiOwnsLog = $false
+
 function Invoke-Main {
     Clear-BffLog
     Write-BffBanner
@@ -111,6 +116,9 @@ function Invoke-Main {
     # ---- GUI ----------------------------------------------------------------
     if ($Gui) {
         . (Join-Path $libPath 'Gui.ps1')
+        # The GUI writes its own timestamped log and CSV per scan, so the wrapper
+        # below must not add a second file holding just the banner.
+        $script:GuiOwnsLog = $true
         try {
             Show-BffGui -Settings $settings -Environment $environment -SlotRules $slotRules `
                         -VanillaFaceTextures $vanilla -Root $root
@@ -270,9 +278,11 @@ catch {
     Write-BffLine ($_.ScriptStackTrace) 'DarkGray'
 }
 finally {
-    $logPath = Join-Path $logDir ("BlackFaceFix_{0}.log" -f $timestamp)
-    try { [void] (Save-BffLog -Path $logPath); Write-Host ("Log: {0}" -f $logPath) -ForegroundColor DarkGray }
-    catch { Write-Host "Could not write the log file: $($_.Exception.Message)" -ForegroundColor Red }
+    if (-not $script:GuiOwnsLog) {
+        $logPath = Join-Path $logDir ("BlackFaceFix_{0}.log" -f $timestamp)
+        try { [void] (Save-BffLog -Path $logPath); Write-Host ("Log: {0}" -f $logPath) -ForegroundColor DarkGray }
+        catch { Write-Host "Could not write the log file: $($_.Exception.Message)" -ForegroundColor Red }
+    }
 
     if (-not $NoPause) {
         Write-Host ''

@@ -5,6 +5,20 @@
 # anything is written.
 
 $script:BffLogLines = New-Object System.Collections.Generic.List[string]
+$script:BffQuiet    = $false
+
+function Set-BffQuiet {
+    <#
+    .SYNOPSIS
+    Stops Write-BffLine printing, while still collecting for the log file.
+
+    Used by the GUI: its launcher hides the console, so the report would go
+    nowhere - but the log file and the CSV still have to be written.
+    #>
+    [CmdletBinding()]
+    param([bool] $Quiet = $true)
+    $script:BffQuiet = $Quiet
+}
 
 function Write-BffLine {
     <#
@@ -19,7 +33,7 @@ function Write-BffLine {
     )
 
     $script:BffLogLines.Add($Message)
-    if (-not $NoConsole) {
+    if (-not $NoConsole -and -not $script:BffQuiet) {
         Write-Host $Message -ForegroundColor $Color
     }
 }

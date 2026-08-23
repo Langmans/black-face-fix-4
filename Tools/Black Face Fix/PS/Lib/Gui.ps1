@@ -41,7 +41,13 @@ function Show-BffGui {
         Plans       = @()
         Archives    = @()
         Scanned     = $false
+        LastCsv     = ''
+        LastLog     = ''
     }
+
+    # The GUI launcher hides the console, so printing would go nowhere. Lines are
+    # still collected and end up in the log file.
+    Set-BffQuiet $true
 
     # ---------------------------------------------------------------- shell
     $form                 = New-Object System.Windows.Forms.Form
@@ -260,6 +266,26 @@ function Show-BffGui {
         $state.Settings.Output.Mode = if ($outputBox.SelectedIndex -eq 1) { 'InPlace' } else { 'OutputMod' }
     }
 
+    # The GUI writes exactly the same log and CSV the console run does. Without
+    # this the log file held nothing but the banner, because the report functions
+    # were only ever called from the console path.
+    $writeReport = {
+        param($Summary)
+
+        $stamp  = Get-Date -Format 'yyyy-MM-dd_HHmmss'
+        $logDir = Join-Path $state.Root 'Logs'
+
+        Clear-BffLog
+        Write-BffBanner
+        Write-BffEnvironmentReport -Environment $state.Environment
+        Write-BffPlanTable -Plan $state.Plans -All
+        Write-BffSummary -Summary $Summary -ArchiveFinding $state.Archives
+
+        $state.LastCsv = Export-BffPlanCsv -Plan $state.Plans -Path (Join-Path $logDir "BlackFaceFix_$stamp.csv")
+        Write-BffLine ('Full per-file detail: {0}' -f $state.LastCsv)
+        $state.LastLog = Save-BffLog -Path (Join-Path $logDir "BlackFaceFix_$stamp.log")
+    }
+
     # ---------------------------------------------------------------- actions
     # Kept in a variable rather than written inline, so it can also be invoked from
     # a test without showing the window - Button.PerformClick() is ignored on a
@@ -314,11 +340,14 @@ function Show-BffGui {
 
             $summary = Get-BffPlanSummary -Plan $state.Plans
             $applyButton.Enabled = ($summary.Changing -gt 0)
+
+            & $writeReport $summary
             $progressBar.Value = $progressBar.Maximum
 
-            & $setStatus ("{0} scanned, {1} already correct, {2} to change, {3} left alone. {4}" -f
+            & $setStatus ("{0} scanned, {1} already correct, {2} to change, {3} left alone. {4}Report: {5}" -f
                 $summary.Total, $summary.Skipped, $summary.Changing, $summary.Review,
-                $(if ($state.Archives.Count) { "$($state.Archives.Count) more sit inside BA2 archives (inspected only)." } else { '' }))
+                $(if ($state.Archives.Count) { "$($state.Archives.Count) more sit inside BA2 archives (inspected only). " } else { '' }),
+                $state.LastCsv)
         }
         catch {
             [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Scan failed',
@@ -366,11 +395,23 @@ function Show-BffGui {
                 $message += "`n`nEnable '$($state.Settings.Output.OutputModName)' in Mod Organizer and put it at the bottom of the load order."
             }
 
+            # Append what actually happened to the log the scan already wrote.
+            Write-BffLine ''
+            Write-BffLine ('Converted {0} texture(s).' -f $ok)
+            foreach ($b in $bad) {
+                Write-BffLine ('  FAILED {0}: {1}' -f $b.Plan.Texture.FullName, $b.Error)
+                if ($b.Command) { Write-BffLine ('         {0}' -f $b.Command) }
+            }
+            foreach ($r in ($results | Where-Object Success)) {
+                Write-BffLine ('  wrote {0}' -f $r.Destination)
+            }
+            if ($state.LastLog) { [void] (Save-BffLog -Path $state.LastLog) }
+
             [System.Windows.Forms.MessageBox]::Show($message, 'Done',
                 [System.Windows.Forms.MessageBoxButtons]::OK,
                 $(if ($bad.Count) { [System.Windows.Forms.MessageBoxIcon]::Warning } else { [System.Windows.Forms.MessageBoxIcon]::Information })) | Out-Null
 
-            & $setStatus "$message  Press Scan to refresh."
+            & $setStatus "$message  Log: $($state.LastLog)"
         }
         catch {
             [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Conversion failed',

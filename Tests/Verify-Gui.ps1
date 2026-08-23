@@ -73,8 +73,29 @@ Check 'test handles exposed' ($null -ne $handles -and $null -ne $handles.State)
 
 if ($handles) {
     Check 'plans were produced' (@($handles.State.Plans).Count -gt 0) ("plans={0}" -f @($handles.State.Plans).Count)
-    Check 'grid has rows'       ($handles.Grid.Rows.Count -gt 0)      ("rows={0}"  -f $handles.Grid.Rows.Count)
+    # The grid defaults to "only what changes", so an install where everything
+    # already matches legitimately shows zero rows. Assert it mirrors the filter
+    # rather than assuming there is always something to fix.
+    $shown = @($handles.State.Plans | Where-Object { $_.Action -ne 'Skip' }).Count
+    Check 'grid matches the filter' ($handles.Grid.Rows.Count -eq $shown) ("rows={0} expected={1}" -f $handles.Grid.Rows.Count, $shown)
     Check 'status was updated'  ($handles.Status.Text -notmatch 'Press Scan to see') $handles.Status.Text
+
+    # The GUI has to write the same log and CSV the console run does. It used to
+    # write a log holding nothing but the banner, because the report functions
+    # were only ever called from the console path.
+    Check 'CSV written' ($handles.State.LastCsv -and (Test-Path -LiteralPath $handles.State.LastCsv)) $handles.State.LastCsv
+    Check 'log written' ($handles.State.LastLog -and (Test-Path -LiteralPath $handles.State.LastLog)) $handles.State.LastLog
+
+    if ($handles.State.LastLog -and (Test-Path -LiteralPath $handles.State.LastLog)) {
+        $log = Get-Content -LiteralPath $handles.State.LastLog
+        Check 'log has more than the banner' ($log.Count -gt 20) ("lines={0}" -f $log.Count)
+        Check 'log contains the summary'     (($log -join "`n") -match 'Summary')
+        Check 'log contains the profile'     (($log -join "`n") -match 'Profile: ')
+    }
+    if ($handles.State.LastCsv -and (Test-Path -LiteralPath $handles.State.LastCsv)) {
+        $csvRows = @(Import-Csv -LiteralPath $handles.State.LastCsv)
+        Check 'CSV has a row per texture' ($csvRows.Count -eq @($handles.State.Plans).Count) ("csv={0} plans={1}" -f $csvRows.Count, @($handles.State.Plans).Count)
+    }
 
     Write-Host ''
     Write-Host ("  status: {0}" -f $handles.Status.Text) -ForegroundColor DarkGray
