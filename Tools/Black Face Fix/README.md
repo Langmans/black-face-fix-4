@@ -92,9 +92,12 @@ ones. Set `Paths.MO2Profile` in `Config\Settings.psd1` to pin a specific profile
 You get **one output mod per source mod**, named after it:
 
 ```
-Extra Textures for V3 Alpha 1
-Extra Textures for V3 Alpha 1 - face textures resized for Vanilla
+Botox for Fallout 4
+Botox for Fallout 4 [face-Vanilla]
 ```
+
+One folder per source mod, not one per texture: a run that fixes three files in
+two mods creates two folders.
 
 1. In MO2 press **F5** (or the refresh arrows) - the new mods appear as unmanaged.
 2. Tick each of them.
@@ -111,9 +114,18 @@ Because the fixes live beside their sources, those sources are still exactly as 
 installed them. Reinstalling or updating one does not undo the fix and does not
 fight with it - just run the tool again afterwards.
 
-**To undo everything:** disable or delete the ` - face textures resized for ...`
-mods. The tool never scans its own output, so they cannot become the input to the
-next run.
+**To undo everything:** disable or delete the `[face-...]` mods.
+
+Each generated folder gets a `BlackFaceFix-generated.txt` at its root saying which
+mod and profile it came from, and that is how the tool recognises its own output -
+not the folder name. Name matching would be wrong here: with `[face-Vanilla]` as
+the decoration, a rule loose enough to catch it also catches real mods called
+`Some Armour [2K]`, which would then be silently skipped. Delete that marker and
+the folder gets scanned as a normal mod again.
+
+The profile is part of the name so switching profiles gives you a second folder
+(`[face-Vanilla]` and `[face-HD DLC]`) rather than a silent overwrite. Disable the
+one you are not using.
 
 If you would rather have the originals overwritten, switch **Write to** to
 *In place*. Every changed file then gets a `<name>.dds.backup` next to it, and

@@ -80,6 +80,18 @@ if ($handles) {
     Check 'grid matches the filter' ($handles.Grid.Rows.Count -eq $shown) ("rows={0} expected={1}" -f $handles.Grid.Rows.Count, $shown)
     Check 'status was updated'  ($handles.Status.Text -notmatch 'Press Scan to see') $handles.Status.Text
 
+    # Full source and destination paths are available but off by default: handy for
+    # checking exactly what is read and where it lands, far too wide to always show.
+    Check 'Source column exists'      ($null -ne $handles.Grid.Columns['Source'])
+    Check 'Destination column exists' ($null -ne $handles.Grid.Columns['Destination'])
+    Check 'path columns start hidden' (-not $handles.Grid.Columns['Source'].Visible -and
+                                       -not $handles.Grid.Columns['Destination'].Visible)
+
+    if ($handles.Grid.Rows.Count -gt 0) {
+        $tip = $handles.Grid.Rows[0].Cells[0].ToolTipText
+        Check 'tooltip carries from/to and why' ($tip -match 'from:' -and $tip -match 'to:') $tip
+    }
+
     # The GUI has to write the same log and CSV the console run does. It used to
     # write a log holding nothing but the banner, because the report functions
     # were only ever called from the console path.

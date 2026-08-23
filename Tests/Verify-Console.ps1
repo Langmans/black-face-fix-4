@@ -134,23 +134,35 @@ try {
     Check 'disabled mod not scanned'      (-not $by.ContainsKey('DisabledHead_d.dds'))
     Check 'no BC6H anywhere in targets'   (@($rows | Where-Object { $_.TargetFormat -eq 'BC6H_SF16' }).Count -eq 0)
 
+    # Naming output after its source makes paths ~50 characters longer than a
+    # shared folder would, so anything that would cross the Windows limit has to
+    # be reported rather than fail halfway through a copy.
+    $tooLong = @($rows | Where-Object { $_.Destination -and $_.Destination.Length -ge 260 -and $_.Action -ne 'Error' })
+    Check 'over-long paths are refused'   ($tooLong.Count -eq 0) ("{0} planned past 260 chars" -f $tooLong.Count)
+
     # ------------------------------------------------------------- run 2: apply
     Write-Host ''
     Write-Host 'RUN 2 - apply (OutputMod)' -ForegroundColor Cyan
     & (Join-Path $Tool 'PS\BlackFaceFix.ps1') -NoPause -Yes -MO2Path (Join-Path $Sandbox 'MO2') -NoArchives | Out-Null
 
     # One output mod per SOURCE mod, named after it, so MO2 keeps deciding
-    # conflicts: '<source> - face textures resized for <profile>'.
-    $outMod = Join-Path $mods 'TestMod - face textures resized for Vanilla'
+    # conflicts: '<source> [<profile>]'.
+    # -LiteralPath everywhere below: square brackets are wildcards to Test-Path, so
+    # a folder called 'TestMod [face-Vanilla]' is invisible without it. Real mod
+    # names hit this too ('Some Armour [2K]').
+    $outMod = Join-Path $mods 'TestMod [face-Vanilla]'
     $outS   = Join-Path $outMod 'textures\actors\character\BaseHumanMale\TestMaleHead_s.dds'
     $outB   = Join-Path $outMod 'textures\actors\character\BaseHumanMale\BrokenMaleHead_d.dds'
 
-    Check 'per-mod output folder created' (Test-Path $outMod) $outMod
-    Check 'converted specular exists'     (Test-Path $outS)
-    Check 'no shared output folder'       (-not (Test-Path (Join-Path $mods 'BlackFaceFix Output')))
-    Check 'nothing written for HairMod'   (-not (Test-Path (Join-Path $mods 'HairMod - face textures resized for Vanilla')))
+    Check 'per-mod output folder created' (Test-Path -LiteralPath $outMod) $outMod
+    Check 'converted specular exists'     (Test-Path -LiteralPath $outS)
+    Check 'no shared output folder'       (-not (Test-Path -LiteralPath (Join-Path $mods 'BlackFaceFix Output')))
+    # Generated folders are identified by a marker file, not by their name: a real
+    # mod called 'Something [2K]' must still be scanned as input.
+    Check 'output folder is marked'       (Test-Path -LiteralPath (Join-Path $outMod 'BlackFaceFix-generated.txt'))
+    Check 'nothing written for HairMod'   (-not (Test-Path -LiteralPath (Join-Path $mods 'HairMod [face-Vanilla]')))
 
-    if (Test-Path $outS) {
+    if (Test-Path -LiteralPath $outS) {
         $i = & $texdiag info -nologo $outS 2>$null
         $w = ($i | Select-String 'width'     | ForEach-Object { ($_ -split '=')[1].Trim() })
         $f = ($i | Select-String 'format'    | ForEach-Object { ($_ -split '=')[1].Trim() })
@@ -159,7 +171,7 @@ try {
         Check 'specular output is BC5'     ($f -eq 'BC5_UNORM') "format=$f"
         Check 'specular has 10 mips'       ($m -eq '10') "mips=$m"
     }
-    if (Test-Path $outB) {
+    if (Test-Path -LiteralPath $outB) {
         $f = (& $texdiag info -nologo $outB 2>$null | Select-String 'format' | ForEach-Object { ($_ -split '=')[1].Trim() })
         Check 'BC6H output is now BC7'     ($f -eq 'BC7_UNORM') "format=$f"
     }
