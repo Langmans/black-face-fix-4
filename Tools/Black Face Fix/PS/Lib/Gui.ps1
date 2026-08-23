@@ -43,6 +43,7 @@ function Show-BffGui {
         Scanned     = $false
         LastCsv     = ''
         LastLog     = ''
+        ArchiveEntries = @{}
     }
 
     # The GUI launcher hides the console, so printing would go nowhere. Lines are
@@ -129,18 +130,26 @@ function Show-BffGui {
         return $c
     }
 
-    $chkEnabled  = New-Check 'Only enabled mods'     12  106 150 ([bool] $Settings.Scope.OnlyEnabledMods)
-    $chkArchives = New-Check 'Inspect BA2 archives'  170 106 160 ([bool] $Settings.Scope.IncludeArchives)
-    $chkFaceCust = New-Check 'FaceCustomization'     338 106 150 ([bool] $Settings.Scope.IncludeFaceCustomization)
-    $chkForce    = New-Check 'Re-encode correct files' 496 106 170 $false
-    $top.Controls.AddRange(@($chkEnabled, $chkArchives, $chkFaceCust, $chkForce))
+    $chkEnabled     = New-Check 'Only enabled mods'          12  106 148 ([bool] $Settings.Scope.OnlyEnabledMods)
+    $chkArchives    = New-Check 'Inspect BA2 archives'      166 106 156 ([bool] $Settings.Scope.IncludeArchives)
+    $chkFixArchives = New-Check 'Fix the ones inside BA2s'  328 106 176 ([bool] $Settings.Scope.FixArchives)
+    $chkForce       = New-Check 'Re-encode correct'         510 106 150 $false
+    $top.Controls.AddRange(@($chkEnabled, $chkArchives, $chkFixArchives, $chkForce))
+
+    # Fixing archive content only makes sense once the archives are read at all.
+    $syncArchiveBoxes = {
+        $chkFixArchives.Enabled = $chkArchives.Checked
+        if (-not $chkArchives.Checked) { $chkFixArchives.Checked = $false }
+    }
+    $chkArchives.Add_CheckedChanged($syncArchiveBoxes)
+    & $syncArchiveBoxes
 
     $top.Controls.Add((New-Label 'Write to' 680 108 60))
     $outputBox               = New-Object System.Windows.Forms.ComboBox
     $outputBox.Location      = New-Object System.Drawing.Point(742, 105)
     $outputBox.Size          = New-Object System.Drawing.Size(314, 24)
     $outputBox.DropDownStyle = 'DropDownList'
-    [void] $outputBox.Items.Add('Separate output mod (source mods untouched)')
+    [void] $outputBox.Items.Add('One output mod per source mod (sources untouched)')
     [void] $outputBox.Items.Add('In place, keeping a .backup next to each file')
     $outputBox.SelectedIndex = if ($Settings.Output.Mode -eq 'InPlace') { 1 } else { 0 }
     $top.Controls.Add($outputBox)
@@ -167,8 +176,9 @@ function Show-BffGui {
     $logButton.Location = New-Object System.Drawing.Point(386, 134)
     $logButton.Size     = New-Object System.Drawing.Size(100, 28)
 
-    $chkOnlyChanges = New-Check 'Show only what changes' 500 137 180 $true
-    $top.Controls.AddRange(@($scanButton, $applyButton, $restoreButton, $logButton, $chkOnlyChanges))
+    $chkOnlyChanges = New-Check 'Show only what changes' 500 137 176 $true
+    $chkFaceCust    = New-Check 'FaceCustomization'      684 137 160 ([bool] $Settings.Scope.IncludeFaceCustomization)
+    $top.Controls.AddRange(@($scanButton, $applyButton, $restoreButton, $logButton, $chkOnlyChanges, $chkFaceCust))
 
     # ---------------------------------------------------------------- grid
     $grid                        = New-Object System.Windows.Forms.DataGridView
@@ -262,6 +272,7 @@ function Show-BffGui {
     $applySettings = {
         $state.Settings.Scope.OnlyEnabledMods          = $chkEnabled.Checked
         $state.Settings.Scope.IncludeArchives          = $chkArchives.Checked
+        $state.Settings.Scope.FixArchives               = ($chkArchives.Checked -and $chkFixArchives.Checked)
         $state.Settings.Scope.IncludeFaceCustomization = $chkFaceCust.Checked
         $state.Settings.Output.Mode = if ($outputBox.SelectedIndex -eq 1) { 'InPlace' } else { 'OutputMod' }
     }
@@ -327,11 +338,40 @@ function Show-BffGui {
                 $state.Plans = @(Update-BffPlanForExistingOutput -Plan $state.Plans -TexDiagPath (Get-BffTexDiagPath -Root $state.Root -Settings $state.Settings))
             }
 
+            $state.ArchiveEntries = @{}
             if ($chkArchives.Checked) {
                 & $setStatus 'Inspecting BA2 archives...'
-                $state.Archives = @(Get-BffArchiveCandidate -Environment $state.Environment -Settings $state.Settings `
-                                                            -SlotRules $state.SlotRules -VanillaFaceTextures $state.Vanilla |
-                                    Where-Object { $_.Texture })
+                $archiveAll = @(Get-BffArchiveCandidate -Environment $state.Environment -Settings $state.Settings `
+                                                        -SlotRules $state.SlotRules -VanillaFaceTextures $state.Vanilla |
+                                Where-Object { $_.Texture })
+
+                $archiveFindings = @()
+                $archivePlans    = New-Object System.Collections.Generic.List[BffPlan]
+
+                foreach ($a in $archiveAll) {
+                    $ap = New-BffPlan -Texture $a.Texture -Profile $state.Environment.Profile `
+                                      -SlotRules $state.SlotRules -Settings $state.Settings -Force:$chkForce.Checked
+                    if (-not $ap.NeedsWork()) { continue }
+                    $archiveFindings += $a
+
+                    if ($state.Settings.Scope.FixArchives) {
+                        # Archives are never repacked: the texture is extracted,
+                        # converted, and written to the output mod as a loose file.
+                        $ap.Destination = Get-BffDestination -Texture $a.Texture -Settings $state.Settings -Environment $state.Environment
+                        $archivePlans.Add($ap)
+                        $state.ArchiveEntries[('{0}::{1}' -f $a.Texture.ArchivePath, $a.Texture.FullName)] = $a.Entry
+                    }
+                }
+
+                if ($state.Settings.Scope.FixArchives -and $archivePlans.Count -gt 0) {
+                    $merged = @(Update-BffPlanForExistingOutput -Plan $archivePlans `
+                                                                -TexDiagPath (Get-BffTexDiagPath -Root $state.Root -Settings $state.Settings))
+                    $state.Plans = @($state.Plans) + $merged
+                    $state.Archives = @()      # being fixed, so no longer just a finding
+                }
+                else {
+                    $state.Archives = $archiveFindings
+                }
             }
             else { $state.Archives = @() }
 
@@ -360,10 +400,14 @@ function Show-BffGui {
 
     $applyButton.Add_Click({
         $summary = Get-BffPlanSummary -Plan $state.Plans
+        $outputMods = @($state.Plans | Where-Object { $_.NeedsWork() } |
+                          ForEach-Object { Split-Path (Split-Path $_.Destination -Parent) -Leaf } |
+                          Sort-Object -Unique)
+
         $where = if ($state.Settings.Output.Mode -eq 'InPlace') {
             'the original files (a .backup is kept next to each one)'
         } else {
-            Join-Path $(if ($state.Environment.MO2) { $state.Environment.MO2.ModsPath } else { $state.Root }) $state.Settings.Output.OutputModName
+            "{0} new mod folder(s):`n  {1}" -f $outputMods.Count, ($outputMods -join "`n  ")
         }
 
         $answer = [System.Windows.Forms.MessageBox]::Show(
@@ -375,7 +419,8 @@ function Show-BffGui {
             $applyButton.Enabled = $false; $scanButton.Enabled = $false
             $progressBar.Value = 0
 
-            $results = Invoke-BffPlanSet -Plan $state.Plans -Settings $state.Settings -Root $state.Root -Progress {
+            $results = Invoke-BffPlanSet -Plan $state.Plans -Settings $state.Settings -Root $state.Root `
+                                         -ArchiveEntryByPath $state.ArchiveEntries -Progress {
                 param($done, $total, $plan)
                 $progressBar.Maximum = $total
                 $progressBar.Value   = [Math]::Min($done, $total)
@@ -392,7 +437,8 @@ function Show-BffGui {
                     ForEach-Object { '  ' + $_.Plan.Texture.Name + ': ' + $_.Error }) -join "`n")
             }
             if ($state.Settings.Output.Mode -ne 'InPlace') {
-                $message += "`n`nEnable '$($state.Settings.Output.OutputModName)' in Mod Organizer and put it at the bottom of the load order."
+                $message += "`n`nIn Mod Organizer press F5, then enable each of these and drag it directly BELOW the mod it was made from:`n  " +
+                            ($outputMods -join "`n  ")
             }
 
             # Append what actually happened to the log the scan already wrote.

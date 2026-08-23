@@ -58,8 +58,13 @@ function Get-BffSourceRoot {
         $entryOf = @{}
         foreach ($m in $Environment.ModList) { $entryOf[$m.Name] = $m }
 
+        # Never scan our own output: those folders hold already-fixed copies, and
+        # treating them as sources would let a fix become the input to the next fix.
+        $outputPattern = Get-BffOutputModPattern -Settings $Settings
+
         foreach ($dir in (Get-ChildItem -LiteralPath $mo2.ModsPath -Directory -ErrorAction SilentlyContinue)) {
             if ($Settings.Scope.ExcludeMods -contains $dir.Name) { continue }
+            if ($outputPattern -and $dir.Name -match $outputPattern) { continue }
 
             $entry = $entryOf[$dir.Name]
 

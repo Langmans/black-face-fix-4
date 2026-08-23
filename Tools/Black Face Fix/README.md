@@ -89,19 +89,31 @@ ones. Set `Paths.MO2Profile` in `Config\Settings.psd1` to pin a specific profile
 
 ### After a run
 
-1. In MO2 press **F5** (or the refresh arrows) - `BlackFaceFix Output` appears as a
-   new, unmanaged mod.
-2. Tick it.
-3. Drag it to the **bottom** of the left-hand mod list, so it wins every conflict.
-   Its whole job is to override the textures it was built from.
-4. It needs no plugin and no entry in the load order on the right.
+You get **one output mod per source mod**, named after it:
 
-Because the fixes live in that one mod, the mods they came from are still exactly as
-you installed them. Reinstalling or updating one of those mods does not undo the fix
-and does not fight with it - just run the tool again afterwards so the output mod
-picks up the new files.
+```
+Extra Textures for V3 Alpha 1
+Extra Textures for V3 Alpha 1 - face textures resized for Vanilla
+```
 
-**To undo everything:** disable or delete `BlackFaceFix Output`.
+1. In MO2 press **F5** (or the refresh arrows) - the new mods appear as unmanaged.
+2. Tick each of them.
+3. Drag each one **directly below the mod it was made from**.
+4. They need no plugin and no entry in the load order on the right.
+
+That last step is the whole point of splitting them up. A single shared output mod
+has to sit at the bottom to work, which means it also overrides mods that have
+nothing to do with it - and when two mods ship the same face texture, whichever the
+scan reached last would win regardless of your MO2 priority. Per-mod folders keep
+the conflict resolution you already have.
+
+Because the fixes live beside their sources, those sources are still exactly as you
+installed them. Reinstalling or updating one does not undo the fix and does not
+fight with it - just run the tool again afterwards.
+
+**To undo everything:** disable or delete the ` - face textures resized for ...`
+mods. The tool never scans its own output, so they cannot become the input to the
+next run.
 
 If you would rather have the originals overwritten, switch **Write to** to
 *In place*. Every changed file then gets a `<name>.dds.backup` next to it, and
@@ -184,9 +196,11 @@ touched - those are lookup tables and palette strips, not faces.
 Archives are read but **never repacked**. For `DX10` archives the size and format sit
 in the file table, so a mismatch is reported without unpacking anything.
 
-Set `Scope.FixArchives = $true` to extract only the mismatching textures, fix them,
-and drop them in the output mod as loose files - loose files win over archives in
-Fallout 4, so the original mod stays untouched.
+Tick **Fix the ones inside BA2s** in the window, pass `-FixArchives`, or set
+`Scope.FixArchives = $true`, and the mismatching textures are extracted, converted,
+and written into that mod's output folder as loose files. Loose files win over
+archives in Fallout 4, so the archive and the mod it belongs to are left completely
+alone.
 
 BA2 versions 1, 7 and 8 are supported (7 and 8 are the next-gen update; they use the
 same 24-byte header and the same record layout as version 1). Next-gen archives that
@@ -205,6 +219,7 @@ Launcher.bat -OutputMode InPlace        overwrite originals, keep <name>.backup
 Launcher.bat -Restore                   put every .backup back
 Launcher.bat -All                       print every row, not just the first 60
 Launcher.bat -NoArchives                skip the BA2 pass
+Launcher.bat -FixArchives               also fix face textures found inside BA2s
 Launcher.bat -Gui                       open the window
 ```
 

@@ -173,15 +173,69 @@ function New-BffPlanSet {
     return $plans
 }
 
+function Get-BffOutputModName {
+    <#
+    .SYNOPSIS
+    The MO2 mod folder that holds the fixed copies of one source mod's textures.
+
+    .EXAMPLE
+    'Extra Textures for V3 Alpha 1' + 'Vanilla'
+      -> 'Extra Textures for V3 Alpha 1 - face textures resized for Vanilla'
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]     $ModName,
+        [Parameter(Mandatory)] [string]     $ProfileName,
+        [Parameter(Mandatory)] [hashtable]  $Settings
+    )
+
+    # Discovery labels sources that are not mods; those placeholders are not legal
+    # folder names, so they get a readable one.
+    $source = switch ($ModName) {
+        '(game data)' { $Settings.Output.GameDataModName }
+        '(overwrite)' { $Settings.Output.OverwriteModName }
+        default       { $ModName }
+    }
+
+    $name = $Settings.Output.OutputModNameFormat -f $source, $ProfileName
+
+    # A profile name may contain characters Windows will not take in a folder.
+    foreach ($c in [System.IO.Path]::GetInvalidFileNameChars()) {
+        $name = $name.Replace([string] $c, '')
+    }
+    return $name.Trim()
+}
+
+function Get-BffOutputModPattern {
+    <#
+    .SYNOPSIS
+    Regex that matches any folder this tool produces, so its own output is never
+    picked up as a source on the next run.
+
+    Derived from OutputModNameFormat rather than hard-coded, so it keeps working
+    if the format is edited.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [hashtable] $Settings)
+
+    $marker = $Settings.Output.OutputModNameFormat -f "`u{1}", "`u{2}"
+    $parts  = $marker -split "[`u{1}`u{2}]"
+    $middle = ($parts | Where-Object { $_ -ne '' } | Select-Object -First 1)
+
+    if (-not $middle) { return $null }
+    return [regex]::Escape($middle)
+}
+
 function Get-BffDestination {
     <#
     .SYNOPSIS
     Where the converted texture ends up.
 
-    OutputMod mode writes into a dedicated MO2 mod so the source mod is never
-    touched - undoing the whole run is then a matter of disabling one mod. It is
-    also the only way to fix a texture that lives inside a BA2, because loose files
-    win over archives in Fallout 4.
+    OutputMod mode writes into one MO2 mod per source mod, so no source mod is
+    ever touched and MO2 keeps deciding conflicts exactly as it did before: put
+    each output directly below the mod it came from. It is also the only way to
+    fix a texture that lives inside a BA2, because loose files win over archives
+    in Fallout 4.
     #>
     [CmdletBinding()]
     param(
@@ -194,16 +248,18 @@ function Get-BffDestination {
         return $Texture.FullName
     }
 
+    $outputMod = Get-BffOutputModName -ModName $Texture.ModName `
+                                      -ProfileName $Environment.Profile.Name `
+                                      -Settings $Settings
+
     $modsPath = if ($Environment.MO2) { $Environment.MO2.ModsPath } else { $null }
     if (-not $modsPath) {
-        # No MO2: fall back to a folder next to the tool rather than writing into
-        # the game's Data folder.
+        # No MO2: keep the same per-source layout next to the tool rather than
+        # writing into the game's Data folder.
         $modsPath = Join-Path $Environment.Root 'Output'
-        return Join-Path $modsPath $Texture.RelativePath
     }
 
-    $outputMod = Join-Path $modsPath $Settings.Output.OutputModName
-    return Join-Path $outputMod $Texture.RelativePath
+    return Join-Path (Join-Path $modsPath $outputMod) $Texture.RelativePath
 }
 
 function Update-BffPlanForExistingOutput {

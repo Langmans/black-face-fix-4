@@ -180,19 +180,43 @@ function Invoke-Main {
 
     # ---- archives (read-only unless FixArchives) ----------------------------
     $archiveFindings = @()
+    $archiveEntries  = @{}
     if ($settings.Scope.IncludeArchives) {
         Write-BffLine 'Inspecting BA2 archives...' 'Yellow'
-        $archiveAll = Get-BffArchiveCandidate -Environment $environment -Settings $settings `
-                                              -SlotRules $slotRules -VanillaFaceTextures $vanilla
-        $archiveAll = @($archiveAll | Where-Object { $_.Texture })
+        $archiveAll = @(Get-BffArchiveCandidate -Environment $environment -Settings $settings `
+                                                -SlotRules $slotRules -VanillaFaceTextures $vanilla |
+                        Where-Object { $_.Texture })
+
+        $archivePlans = New-Object System.Collections.Generic.List[BffPlan]
 
         foreach ($a in $archiveAll) {
             $p = New-BffPlan -Texture $a.Texture -Profile $environment.Profile `
                              -SlotRules $slotRules -Settings $settings -Force:$Force
-            if ($p.NeedsWork()) { $archiveFindings += $a }
+            if (-not $p.NeedsWork()) { continue }
+
+            $archiveFindings += $a
+
+            if ($settings.Scope.FixArchives) {
+                # Archives are never repacked. The texture is extracted, converted
+                # and written to the output mod as a loose file, which wins over
+                # the archive in Fallout 4 and leaves the original mod alone.
+                $p.Destination = Get-BffDestination -Texture $a.Texture -Settings $settings -Environment $environment
+                $archivePlans.Add($p)
+                $archiveEntries[('{0}::{1}' -f $a.Texture.ArchivePath, $a.Texture.FullName)] = $a.Entry
+            }
         }
+
         Write-BffLine ('  {0} face texture(s) in archives, {1} do not match the profile' -f
                        $archiveAll.Count, $archiveFindings.Count)
+
+        if ($settings.Scope.FixArchives -and $archivePlans.Count -gt 0) {
+            $merged = @(Update-BffPlanForExistingOutput -Plan $archivePlans `
+                                                        -TexDiagPath (Get-BffTexDiagPath -Root $root -Settings $settings))
+            $plans = @($plans) + $merged
+            Write-BffLine ('  {0} of them will be extracted and fixed' -f @($merged | Where-Object { $_.NeedsWork() }).Count) 'Cyan'
+            # They are being fixed, so they are no longer a "look at this" finding.
+            $archiveFindings = @()
+        }
         Write-BffLine ''
     }
 
@@ -215,10 +239,15 @@ function Invoke-Main {
         Write-BffLine 'Nothing to do.' 'Green'
     }
     else {
+        $outputMods = @($plans | Where-Object { $_.NeedsWork() } |
+                          ForEach-Object { Split-Path (Split-Path $_.Destination -Parent) -Leaf } |
+                          Sort-Object -Unique)
+
         $destination = if ($settings.Output.Mode -eq 'InPlace') {
             'the original files, with a .backup next to each one'
         } else {
-            Join-Path $(if ($environment.MO2) { $environment.MO2.ModsPath } else { $root }) $settings.Output.OutputModName
+            '{0} new mod folder(s) under {1}' -f $outputMods.Count,
+                $(if ($environment.MO2) { $environment.MO2.ModsPath } else { $root })
         }
 
         Write-BffLine ''
@@ -239,7 +268,8 @@ function Invoke-Main {
             Write-BffLine ''
             Write-BffLine 'Converting...' 'Yellow'
 
-            $results = Invoke-BffPlanSet -Plan $plans -Settings $settings -Root $root -Progress {
+            $results = Invoke-BffPlanSet -Plan $plans -Settings $settings -Root $root `
+                                         -ArchiveEntryByPath $archiveEntries -Progress {
                 param($done, $total, $plan)
                 Write-Progress -Activity 'Converting' -Status "$done / $total - $($plan.Texture.Name)" `
                                -PercentComplete ([int](100 * $done / $total))
@@ -261,9 +291,10 @@ function Invoke-Main {
 
             if ($settings.Output.Mode -ne 'InPlace' -and $environment.MO2) {
                 Write-BffLine ''
-                Write-BffLine ("Enable '{0}' in Mod Organizer and put it at the BOTTOM of the load order." -f
-                               $settings.Output.OutputModName) 'Cyan'
-                Write-BffLine 'To undo everything, just disable that one mod.' 'Cyan'
+                Write-BffLine 'In Mod Organizer press F5, then enable each of these and drag it' 'Cyan'
+                Write-BffLine 'directly BELOW the mod it was made from:' 'Cyan'
+                foreach ($m in $outputMods) { Write-BffLine ('    {0}' -f $m) 'Cyan' }
+                Write-BffLine 'To undo everything, disable or delete them.' 'Cyan'
             }
         }
     }

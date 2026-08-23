@@ -88,13 +88,30 @@
     }
 
     Output = @{
-        # 'OutputMod' writes fixed textures to a dedicated MO2 mod, leaving every
-        # source mod untouched. Undo = disable that one mod. This is also the only
-        # way BA2 content can be fixed.
-        # 'InPlace' overwrites the original and leaves a <name.ext>.backup next to it.
-        Mode          = 'OutputMod'
-        OutputModName = 'BlackFaceFix Output'
-        BackupSuffix  = '.backup'
+        # 'OutputMod' writes fixed textures into MO2 mods of their own, leaving
+        # every source mod untouched. 'InPlace' overwrites the original and leaves
+        # a <name.ext>.backup next to it.
+        Mode = 'OutputMod'
+
+        # One output mod PER SOURCE MOD, not one shared folder.
+        # {0} is the source mod's folder name, {1} is the profile.
+        #
+        #   Extra Textures for V3 Alpha 1
+        #   Extra Textures for V3 Alpha 1 - face textures resized for Vanilla
+        #
+        # Put each output directly below its source in the mod list and the load
+        # order you already have keeps working. A single shared output mod cannot
+        # do that: when two mods ship the same face texture, whichever the scan
+        # happened to reach last would win, regardless of MO2 priority - and the
+        # shared mod sits at the bottom, so it also overrides mods it has nothing
+        # to do with.
+        OutputModNameFormat = '{0} - face textures resized for {1}'
+
+        # Used in place of {0} for textures that do not come from a mod.
+        GameDataModName  = 'Fallout 4 Data'
+        OverwriteModName = 'MO2 Overwrite'
+
+        BackupSuffix = '.backup'
     }
 
     Conversion = @{

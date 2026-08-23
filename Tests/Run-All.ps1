@@ -32,7 +32,7 @@ $bad += $syntaxErrors
 $total++
 
 # --- suites ---------------------------------------------------------------
-foreach ($suite in @('Verify-Console.ps1', 'Verify-Gui.ps1')) {
+foreach ($suite in @('Verify-Console.ps1', 'Verify-Gui.ps1', 'Verify-Ba2.ps1')) {
     Write-Host ''
     Write-Host ("Running {0}..." -f $suite) -ForegroundColor Cyan
 

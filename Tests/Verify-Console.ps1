@@ -139,12 +139,16 @@ try {
     Write-Host 'RUN 2 - apply (OutputMod)' -ForegroundColor Cyan
     & (Join-Path $Tool 'PS\BlackFaceFix.ps1') -NoPause -Yes -MO2Path (Join-Path $Sandbox 'MO2') -NoArchives | Out-Null
 
-    $outMod = Join-Path $mods 'BlackFaceFix Output'
+    # One output mod per SOURCE mod, named after it, so MO2 keeps deciding
+    # conflicts: '<source> - face textures resized for <profile>'.
+    $outMod = Join-Path $mods 'TestMod - face textures resized for Vanilla'
     $outS   = Join-Path $outMod 'textures\actors\character\BaseHumanMale\TestMaleHead_s.dds'
     $outB   = Join-Path $outMod 'textures\actors\character\BaseHumanMale\BrokenMaleHead_d.dds'
 
-    Check 'output mod created'            (Test-Path $outMod)
+    Check 'per-mod output folder created' (Test-Path $outMod) $outMod
     Check 'converted specular exists'     (Test-Path $outS)
+    Check 'no shared output folder'       (-not (Test-Path (Join-Path $mods 'BlackFaceFix Output')))
+    Check 'nothing written for HairMod'   (-not (Test-Path (Join-Path $mods 'HairMod - face textures resized for Vanilla')))
 
     if (Test-Path $outS) {
         $i = & $texdiag info -nologo $outS 2>$null

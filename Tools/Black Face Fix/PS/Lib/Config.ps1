@@ -31,7 +31,10 @@ function Import-BffSettings {
             IncludeFaceCustomization = $false; IncludeArchives = $true; FixArchives = $false
             ExcludePathPatterns = @('\\Hair\\'); ExcludeMods = @()
         }
-        Output     = @{ Mode = 'OutputMod'; OutputModName = 'BlackFaceFix Output'; BackupSuffix = '.backup' }
+        Output     = @{ Mode = 'OutputMod'
+                        OutputModNameFormat = '{0} - face textures resized for {1}'
+                        GameDataModName = 'Fallout 4 Data'; OverwriteModName = 'MO2 Overwrite'
+                        BackupSuffix = '.backup' }
         Conversion = @{ Filter = 'FANT'; UseBcMax = $true; MinSize = 256; RequireSquare = $true; PreferSystemTools = $false }
         Logging    = @{ Debug = $false }
     }
