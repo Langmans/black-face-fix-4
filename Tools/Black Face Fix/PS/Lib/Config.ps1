@@ -52,6 +52,20 @@ function Import-BffSettings {
         }
     }
 
+    # Settings.local.psd1 wins over Settings.psd1 and is not tracked in git, so
+    # personal tweaks stay out of what gets shipped. It needs only the keys it
+    # changes.
+    $localPath = Join-Path $Root 'Config\Settings.local.psd1'
+    if (Test-Path -LiteralPath $localPath) {
+        $local = Import-PowerShellDataFile -LiteralPath $localPath
+        foreach ($key in $local.Keys) {
+            if ($local[$key] -is [hashtable] -and $settings[$key] -is [hashtable]) {
+                foreach ($sub in $local[$key].Keys) { $settings[$key][$sub] = $local[$key][$sub] }
+            }
+            else { $settings[$key] = $local[$key] }
+        }
+    }
+
     return $settings
 }
 

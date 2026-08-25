@@ -125,7 +125,7 @@
     Conversion = @{
         # texconv -if value. FANT is DirectXTex's default and is the better choice
         # for downscaling; CUBIC looks slightly better when upscaling.
-        Filter        = 'CUBIC'
+        Filter        = 'FANT'
 
         # Adds -bcmax -sepalpha on BC7 targets. Slower, noticeably better quality.
         UseBcMax      = $true
@@ -140,11 +140,11 @@
         # MSFT copy, so 'winget install Microsoft.DirectXTex.Texconv' wins and stays
         # current. $false (default) keeps the bundled copy authoritative, which is
         # what you want when handing the tool to someone else.
-        PreferSystemTools = $true
+        PreferSystemTools = $false
     }
 
     Logging = @{
         # Writes every texdiag/texconv command line to the log.
-        Debug = $true
+        Debug = $false
     }
 }

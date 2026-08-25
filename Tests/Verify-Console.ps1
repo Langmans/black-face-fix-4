@@ -121,6 +121,36 @@ try {
     $rows = Import-Csv $csv.FullName
     $by = @{}; foreach ($r in $rows) { $by[$r.File] = $r }
 
+    # Settings.local.psd1 keeps personal tweaks out of what gets shipped. Checked
+    # read-only against whatever is actually there - the live config is not touched.
+    $localPath = Join-Path $Tool 'Config\Settings.local.psd1'
+    if (Test-Path -LiteralPath $localPath) {
+        # This suite drives the tool as a subprocess, so the library is not loaded
+        # here; the two files the merge needs are pulled in just for this check.
+        . (Join-Path $Tool 'PS\Lib\Types.ps1')
+        . (Join-Path $Tool 'PS\Lib\Config.ps1')
+
+        $shipped = Import-PowerShellDataFile -LiteralPath (Join-Path $Tool 'Config\Settings.psd1')
+        $local   = Import-PowerShellDataFile -LiteralPath $localPath
+        $merged  = Import-BffSettings -Root $Tool
+
+        $wrong = @()
+        foreach ($section in $local.Keys) {
+            if ($local[$section] -isnot [hashtable]) { continue }
+            foreach ($k in $local[$section].Keys) {
+                if ("$($merged[$section][$k])" -ne "$($local[$section][$k])") {
+                    $wrong += "$section.$k"
+                }
+            }
+        }
+        Check 'local settings override the shipped ones' ($wrong.Count -eq 0) ($wrong -join ', ')
+
+        # Anything the local file does not mention must still come from Settings.psd1.
+        Check 'unmentioned settings keep their shipped value' `
+            ("$($merged.Conversion.MinSize)" -eq "$($shipped.Conversion.MinSize)") `
+            ("merged={0} shipped={1}" -f $merged.Conversion.MinSize, $shipped.Conversion.MinSize)
+    }
+
     Write-Host ''
     Write-Host 'Checks' -ForegroundColor Cyan
 
