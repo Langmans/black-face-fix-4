@@ -182,6 +182,48 @@ function Show-BffGui {
     $top.Controls.AddRange(@($scanButton, $applyButton, $restoreButton, $logButton,
                              $chkOnlyChanges, $chkFaceCust, $chkFullPaths))
 
+    # ---------------------------------------------------------- mod picker
+    # One tick per SOURCE mod, so a run can be narrowed without editing settings.
+    $side          = New-Object System.Windows.Forms.Panel
+    $side.Dock     = 'Right'
+    $side.Width    = 270
+    $side.Padding  = New-Object System.Windows.Forms.Padding(8, 6, 8, 6)
+    $form.Controls.Add($side)
+
+    $sideLabel        = New-Object System.Windows.Forms.Label
+    $sideLabel.Text   = 'Mods to fix'
+    $sideLabel.Dock   = 'Top'
+    $sideLabel.Height = 20
+    $sideLabel.Font   = $fontBold
+
+    $sideHint           = New-Object System.Windows.Forms.Label
+    $sideHint.Text      = 'Untick a mod to leave it alone this run.'
+    $sideHint.Dock      = 'Top'
+    $sideHint.Height    = 32
+    $sideHint.ForeColor = [System.Drawing.Color]::DimGray
+
+    $modList                = New-Object System.Windows.Forms.CheckedListBox
+    $modList.Dock           = 'Fill'
+    $modList.CheckOnClick   = $true
+    $modList.IntegralHeight = $false
+
+    $modButtons        = New-Object System.Windows.Forms.Panel
+    $modButtons.Dock   = 'Bottom'
+    $modButtons.Height = 30
+
+    $btnAll          = New-Object System.Windows.Forms.Button
+    $btnAll.Text     = 'All'
+    $btnAll.Location = New-Object System.Drawing.Point(0, 2)
+    $btnAll.Size     = New-Object System.Drawing.Size(70, 24)
+
+    $btnNone          = New-Object System.Windows.Forms.Button
+    $btnNone.Text     = 'None'
+    $btnNone.Location = New-Object System.Drawing.Point(76, 2)
+    $btnNone.Size     = New-Object System.Drawing.Size(70, 24)
+    $modButtons.Controls.AddRange(@($btnAll, $btnNone))
+
+    $side.Controls.AddRange(@($modList, $modButtons, $sideHint, $sideLabel))
+
     # ---------------------------------------------------------------- grid
     $grid                        = New-Object System.Windows.Forms.DataGridView
     $grid.Dock                   = 'Fill'
@@ -253,11 +295,40 @@ function Show-BffGui {
         $warnLabel.Text = if ($warnings.Count) { ($warnings -join '  ') } else { '' }
     }
 
+    # Mods ticked in the side panel. Everything counts until a scan has filled it.
+    $selectedMods = {
+        if ($modList.Items.Count -eq 0) { return $null }
+        $set = @{}
+        foreach ($m in $modList.CheckedItems) { $set[[string] $m] = $true }
+        return $set
+    }
+
+    $plansToApply = {
+        $set = & $selectedMods
+        if (-not $set) { return @($state.Plans | Where-Object { $_.NeedsWork() }) }
+        return @($state.Plans | Where-Object { $_.NeedsWork() -and $set.ContainsKey($_.Texture.ModName) })
+    }
+
+    $fillModList = {
+        $mods = @($state.Plans | Where-Object { $_.NeedsWork() } |
+                  ForEach-Object { $_.Texture.ModName } | Sort-Object -Unique)
+        $modList.BeginUpdate()
+        $modList.Items.Clear()
+        foreach ($m in $mods) { [void] $modList.Items.Add($m, $true) }
+        $modList.EndUpdate()
+    }
+
     $fillGrid = {
         $grid.Rows.Clear()
+        $set  = & $selectedMods
         $rows = if ($chkOnlyChanges.Checked) {
             @($state.Plans | Where-Object { $_.Action -ne 'Skip' })
         } else { @($state.Plans) }
+
+        # A row for an unticked mod would claim work that will not happen.
+        if ($set) {
+            $rows = @($rows | Where-Object { -not $_.NeedsWork() -or $set.ContainsKey($_.Texture.ModName) })
+        }
 
         $grid.SuspendLayout()
         foreach ($p in $rows) {
@@ -403,6 +474,7 @@ function Show-BffGui {
             }
             else { $state.Archives = @() }
 
+            & $fillModList
             & $fillGrid
             $state.Scanned = $true
 
@@ -427,10 +499,17 @@ function Show-BffGui {
     $scanButton.Add_Click($doScan)
 
     $applyButton.Add_Click({
-        $summary = Get-BffPlanSummary -Plan $state.Plans
-        $outputMods = @($state.Plans | Where-Object { $_.NeedsWork() } |
-                          ForEach-Object { Split-Path (Split-Path $_.Destination -Parent) -Leaf } |
-                          Sort-Object -Unique)
+        $todo = @(& $plansToApply)
+        if ($todo.Count -eq 0) {
+            [System.Windows.Forms.MessageBox]::Show(
+                'Nothing is ticked under "Mods to fix", so there is nothing to convert.',
+                'Nothing to do', [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
+            return
+        }
+
+        $outputMods = @($todo | ForEach-Object { Get-BffOutputModDisplayName -Plan $_ } |
+                          Where-Object { $_ } | Sort-Object -Unique)
 
         $where = if ($state.Settings.Output.Mode -eq 'InPlace') {
             'the original files (a .backup is kept next to each one)'
@@ -439,7 +518,7 @@ function Show-BffGui {
         }
 
         $answer = [System.Windows.Forms.MessageBox]::Show(
-            ("Convert {0} texture(s)?`n`nResults go to:`n{1}" -f $summary.Changing, $where),
+            ("Convert {0} texture(s)?`n`nResults go to:`n{1}" -f $todo.Count, $where),
             'Confirm', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
         if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
 
@@ -447,7 +526,7 @@ function Show-BffGui {
             $applyButton.Enabled = $false; $scanButton.Enabled = $false
             $progressBar.Value = 0
 
-            $results = Invoke-BffPlanSet -Plan $state.Plans -Settings $state.Settings -Root $state.Root `
+            $results = Invoke-BffPlanSet -Plan $todo -Settings $state.Settings -Root $state.Root `
                                          -ArchiveEntryByPath $state.ArchiveEntries `
                                          -ProfileName $state.Environment.Profile.Name -Progress {
                 param($done, $total, $plan)
@@ -528,6 +607,17 @@ function Show-BffGui {
 
     $profileBox.Add_SelectedIndexChanged({ & $refreshProfile })
     $chkOnlyChanges.Add_CheckedChanged({ if ($state.Scanned) { & $fillGrid } })
+    $btnAll.Add_Click({
+        for ($i = 0; $i -lt $modList.Items.Count; $i++) { $modList.SetItemChecked($i, $true) }
+        if ($state.Scanned) { & $fillGrid }
+    })
+    $btnNone.Add_Click({
+        for ($i = 0; $i -lt $modList.Items.Count; $i++) { $modList.SetItemChecked($i, $false) }
+        if ($state.Scanned) { & $fillGrid }
+    })
+    # ItemCheck fires before the new state is stored, so the refresh is deferred.
+    $modList.Add_ItemCheck({ [void] $form.BeginInvoke([Action] { if ($state.Scanned) { & $fillGrid } }) })
+
     $chkFullPaths.Add_CheckedChanged({
         $grid.Columns['Source'].Visible      = $chkFullPaths.Checked
         $grid.Columns['Destination'].Visible = $chkFullPaths.Checked
@@ -537,10 +627,11 @@ function Show-BffGui {
 
     # Handles for tests: the scan can then be driven without a visible window.
     $form.Tag = [pscustomobject]@{
-        State  = $state
-        Scan   = $doScan
-        Grid   = $grid
-        Status = $status
+        State   = $state
+        Scan    = $doScan
+        Grid    = $grid
+        Status  = $status
+        ModList = $modList
     }
 
     if ($BuildOnly) {

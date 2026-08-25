@@ -213,6 +213,7 @@ function Get-BffCandidate {
             $t.ModName      = $root.Name
             $t.Origin       = $(if ($root.Kind -eq 'Mod') { 'Loose' } else { $root.Kind })
             $t.Slot         = $match.Slot
+            $t.IsTintMask   = ($match.Source -ne 'vanilla texture set' -and $match.Source -ne 'head name')
 
             $result.Add($t)
         }
@@ -283,6 +284,7 @@ function Get-BffArchiveCandidate {
                 $t.Origin       = 'BA2'
                 $t.ArchivePath  = $archive.FullName
                 $t.Slot         = $match.Slot
+                $t.IsTintMask   = ($match.Source -ne 'vanilla texture set' -and $match.Source -ne 'head name')
                 $t.Width        = $entry.Width
                 $t.Height       = $entry.Height
                 $t.Format       = $entry.Format

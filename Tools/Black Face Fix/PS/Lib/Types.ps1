@@ -49,6 +49,9 @@ class BffTexture {
     [string] $Format         # DXGI name as reported by texdiag / the BA2 file table
     [int]    $MipLevels
     [string] $Slot
+    # True for anything under FaceDetails or TintMasks. Those are masks, not colour
+    # maps, so a single-channel format can be a deliberate and better choice there.
+    [bool]   $IsTintMask
 
     [string] Describe() {
         return ('{0}x{1} {2}' -f $this.Width, $this.Height, $this.Format)

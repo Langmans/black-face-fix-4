@@ -74,6 +74,49 @@ Check 'no entry reports a nonsense format' `
     (($found | Where-Object { $_.Texture.Format -match '^DXGI_\d|^FOURCC_' } |
         Select-Object -First 3 -Expand Texture | ForEach-Object { $_.Format }) -join ', ')
 
+# --- the rules must accept whatever the game itself ships -------------------
+# The safe format for a slot is the one Fallout 4 uses for it. If the slot rules
+# ever reject something out of the game's own archives, the rules are wrong, not
+# the game.
+$gameFaces = New-Object System.Collections.Generic.List[object]
+foreach ($ba2 in (Get-ChildItem $environment.DataPath -Filter '*.ba2' -File -ErrorAction SilentlyContinue)) {
+    $idx = Read-BffBa2Index -Path $ba2.FullName -PathFilter 'actors\\character'
+    if ($idx.Error) { continue }
+    foreach ($e in $idx.Entries) {
+        $rel = ($e.InternalPath -replace '(?i)^textures\\', '')
+        $m = Test-BffFaceTexture -RelativePath $rel -VanillaFaceTextures $vanilla `
+                                 -SlotRules $slotRules -Settings $settings
+        if ($m) { $gameFaces.Add([pscustomobject]@{ Slot = $m.Slot; Format = $e.Format; Width = $e.Width }) }
+    }
+}
+
+Check 'game face textures were found' ($gameFaces.Count -gt 0) ("count={0}" -f $gameFaces.Count)
+
+$rejected = @($gameFaces | Where-Object {
+    # $PSItem and not $_: the inner Where-Object rebinds $_ to the rule.
+    $face = $PSItem
+    $rule = $slotRules.Rules | Where-Object { $_.Slot -eq $face.Slot } | Select-Object -First 1
+    $rule -and -not $rule.AllowsFormat($face.Format)
+})
+Check 'slot rules accept every vanilla format' ($rejected.Count -eq 0) `
+    (($rejected | Group-Object Slot, Format | ForEach-Object { $_.Name }) -join '; ')
+
+# Every conversion target must itself be a format the game uses for that slot.
+foreach ($rule in $slotRules.Rules) {
+    $shipped = @($gameFaces | Where-Object { $_.Slot -eq $rule.Slot } | ForEach-Object { $_.Format } | Sort-Object -Unique)
+    if ($shipped.Count -eq 0) { continue }
+    Check ("default format for " + $rule.Slot + " is one the game uses") `
+        ($shipped -contains $rule.DefaultFormat) `
+        ("default={0} game uses={1}" -f $rule.DefaultFormat, ($shipped -join ', '))
+}
+
+# The vanilla specular really is 512, whatever a mod page may claim.
+$spec = @($gameFaces | Where-Object { $_.Slot -eq 'Specular' })
+if ($spec.Count -gt 0) {
+    Check 'vanilla speculars are all 512' (@($spec | Where-Object { $_.Width -ne 512 }).Count -eq 0) `
+        (($spec | Group-Object Width | ForEach-Object { "$($_.Name)x$($_.Count)" }) -join ' ')
+}
+
 # --- extraction ------------------------------------------------------------
 $work = Join-Path $env:TEMP ('BlackFaceFix.Tests\ba2_' + [Guid]::NewGuid().ToString('N').Substring(0, 6))
 [void] (New-Item -ItemType Directory -Path $work -Force)

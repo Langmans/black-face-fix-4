@@ -294,11 +294,8 @@ function Invoke-BffConvert {
         }
 
         if ($Settings.Output.Mode -ne 'InPlace') {
-            # The destination always ends with the texture's relative path, so
-            # trimming that off gives the root of the generated mod folder.
-            $relative = $texture.RelativePath
-            if ($destination.EndsWith($relative, [StringComparison]::OrdinalIgnoreCase)) {
-                $modRoot = $destination.Substring(0, $destination.Length - $relative.Length).TrimEnd('\')
+            $modRoot = Get-BffOutputModRoot -Plan $Plan
+            if ($modRoot) {
                 [void] (New-BffOutputMarker -ModRoot $modRoot -SourceMod $texture.ModName -ProfileName $ProfileName)
             }
         }

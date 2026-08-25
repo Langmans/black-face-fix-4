@@ -247,8 +247,8 @@ function Invoke-Main {
     }
     else {
         $outputMods = @($plans | Where-Object { $_.NeedsWork() } |
-                          ForEach-Object { Split-Path (Split-Path $_.Destination -Parent) -Leaf } |
-                          Sort-Object -Unique)
+                          ForEach-Object { Get-BffOutputModDisplayName -Plan $_ } |
+                          Where-Object { $_ } | Sort-Object -Unique)
 
         $destination = if ($settings.Output.Mode -eq 'InPlace') {
             'the original files, with a .backup next to each one'

@@ -34,7 +34,9 @@
                 'BC3_UNORM', 'BC3_UNORM_SRGB',
                 'BC7_UNORM', 'BC7_UNORM_SRGB'
             )
-            DefaultFormat  = 'BC7_UNORM'
+            # Vanilla ships _msn as BC1 and BC3, never BC7, so that is what a
+            # conversion targets.
+            DefaultFormat  = 'BC3_UNORM'
         },
         @{
             # '_specular' spelled out shows up in mods that do not follow the
@@ -56,7 +58,9 @@
             Slot           = 'Skin'
             Suffixes       = @('_sk', '_sss', '_c')
             AllowedFormats = @('*')
-            DefaultFormat  = 'BC7_UNORM'
+            # Never actually fires while AllowedFormats is '*', but it still has to
+            # name a format the game uses for this slot: vanilla ships BC1 and BC3.
+            DefaultFormat  = 'BC3_UNORM'
             EnforceSize    = $false
         },
         @{
@@ -70,10 +74,30 @@
                 'BC3_UNORM', 'BC3_UNORM_SRGB',
                 'BC7_UNORM', 'BC7_UNORM_SRGB'
             )
-            DefaultFormat  = 'BC7_UNORM'
+            # Reading the game's own archives: of the 220 face diffuse textures
+            # Fallout 4 ships, 161 are BC3_UNORM and 59 are BC1_UNORM. Not one is
+            # BC7. So when a conversion is unavoidable it targets BC3 - a format
+            # the engine demonstrably handles for this slot, and one that keeps
+            # the alpha a tint mask may carry.
+            #
+            # BC7 stays on the allowed list because the HD DLC assets use it and
+            # it is strictly higher quality; there is no reason to convert an
+            # existing BC7 away.
+            DefaultFormat  = 'BC3_UNORM'
         }
     )
 
     # Slot used when the suffix matches nothing above.
     DefaultSlot = 'Diffuse'
+
+    # Extra formats tolerated for textures under FaceDetails and TintMasks, on top
+    # of whatever the slot allows.
+    #
+    # Fallout 4 itself never uses BC4 for a face texture - checked against all 425
+    # in its own archives - so this is not a vanilla format. It is listed anyway
+    # because these are greyscale masks rather than colour maps: some mods pick BC4
+    # deliberately (Addictol's FaceTints), and converting a single channel mask to
+    # a colour format only makes the file bigger and the mask worse. Leaving it
+    # alone is the conservative choice; empty this list to convert them instead.
+    TintExtraFormats = @('BC4_UNORM', 'BC4_SNORM')
 }

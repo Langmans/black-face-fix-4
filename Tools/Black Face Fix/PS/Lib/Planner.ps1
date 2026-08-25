@@ -99,6 +99,15 @@ function New-BffPlan {
     # ships BC7 face diffuses, the CK wiki asks for BC1 and mods use BC3 for alpha;
     # all three are fine, and re-encoding a valid texture only loses quality.
     $plan.FormatOk = $rule.AllowsFormat($Texture.Format)
+
+    # Masks under FaceDetails and TintMasks may also use the extra formats from
+    # SlotRules.psd1 - see the comment there for why BC4 belongs on that list.
+    $extra = @()
+    if ($Texture.IsTintMask -and $SlotRules.PSObject.Properties['TintExtraFormats']) {
+        $extra = @($SlotRules.TintExtraFormats)
+        if (-not $plan.FormatOk -and $extra -contains $Texture.Format) { $plan.FormatOk = $true }
+    }
+
     $plan.TargetFormat = if ($plan.FormatOk) { $Texture.Format } else { $rule.DefaultFormat }
 
     # --- action + reason ------------------------------------------------------
@@ -112,7 +121,7 @@ function New-BffPlan {
     }
 
     if (-not $plan.FormatOk) {
-        $allowed = ($rule.AllowedFormats -join ', ')
+        $allowed = ((@($rule.AllowedFormats) + $extra) -join ', ')
         $formatReason = ("{0} is not valid for a {1} map (allowed: {2}), so it is re-encoded as {3}" -f
                          $Texture.Format, $Texture.Slot.ToLower(), $allowed, $rule.DefaultFormat)
     }
@@ -297,6 +306,43 @@ function Get-BffOutputModPattern {
         [string] $Root = (Get-BffRoot)
     )
     return [regex]::Escape(' - face textures resized for ') + '.+$'
+}
+
+function Get-BffOutputModRoot {
+    <#
+    .SYNOPSIS
+    The root folder of the generated mod a plan writes into.
+
+    .NOTES
+    Not 'Split-Path (Split-Path $Destination -Parent) -Leaf': that returns the
+    folder the texture sits in, so it reports 'BaseHumanMale' - or, with
+    FaceCustomization enabled, the name of a plugin, because those textures live
+    in a folder named after the esp. The destination always ends with the
+    texture's relative path, so trimming that off is exact.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [BffPlan] $Plan)
+
+    if (-not $Plan.Destination) { return '' }
+
+    $relative = $Plan.Texture.RelativePath
+    if ($Plan.Destination.EndsWith($relative, [StringComparison]::OrdinalIgnoreCase)) {
+        return $Plan.Destination.Substring(0, $Plan.Destination.Length - $relative.Length).TrimEnd('')
+    }
+    return (Split-Path -Parent $Plan.Destination)
+}
+
+function Get-BffOutputModDisplayName {
+    <#
+    .SYNOPSIS
+    Just the folder name of the generated mod, as Mod Organizer shows it.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [BffPlan] $Plan)
+
+    $root = Get-BffOutputModRoot -Plan $Plan
+    if (-not $root) { return '' }
+    return (Split-Path -Leaf $root)
 }
 
 function Get-BffDestination {

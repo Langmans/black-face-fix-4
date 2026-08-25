@@ -80,6 +80,23 @@ if ($handles) {
     Check 'grid matches the filter' ($handles.Grid.Rows.Count -eq $shown) ("rows={0} expected={1}" -f $handles.Grid.Rows.Count, $shown)
     Check 'status was updated'  ($handles.Status.Text -notmatch 'Press Scan to see') $handles.Status.Text
 
+    # One tick per source mod, not per texture, and everything on by default.
+    $changing = @($handles.State.Plans | Where-Object { $_.NeedsWork() })
+    $mods     = @($changing | ForEach-Object { $_.Texture.ModName } | Sort-Object -Unique)
+    Check 'mod picker lists source mods' ($handles.ModList.Items.Count -eq $mods.Count) `
+        ("list={0} mods={1}" -f $handles.ModList.Items.Count, $mods.Count)
+    Check 'mod picker starts fully ticked' ($handles.ModList.CheckedItems.Count -eq $handles.ModList.Items.Count) `
+        ("ticked={0} of {1}" -f $handles.ModList.CheckedItems.Count, $handles.ModList.Items.Count)
+
+    # The output mod name has to be the MO2 folder, not the directory the texture
+    # happens to sit in - that would report 'BaseHumanMale', or a plugin name once
+    # FaceCustomization is on, because those textures live in a folder per esp.
+    foreach ($pl in ($changing | Select-Object -First 5)) {
+        $shownName = Get-BffOutputModDisplayName -Plan $pl
+        Check ("output mod name for " + $pl.Texture.Name) `
+            ($shownName -like ($pl.Texture.ModName + '*')) $shownName
+    }
+
     # Full source and destination paths are available but off by default: handy for
     # checking exactly what is read and where it lands, far too wide to always show.
     Check 'Source column exists'      ($null -ne $handles.Grid.Columns['Source'])

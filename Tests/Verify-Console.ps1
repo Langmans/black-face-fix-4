@@ -94,6 +94,8 @@ Make $srcD (Join-Path $base 'BrokenMaleHead_d.dds')      1024 1024 BC6H_SF16   #
 Make $srcS (Join-Path $base 'TestMaleHead_msn.dds')      1024 1024 BC1_UNORM   # msn: BC1 is legal, skip
 Make $srcD (Join-Path $base 'TestMaleBody_d.dds')        4096 4096 BC7_UNORM   # body: must be ignored
 Make $srcD (Join-Path $face 'Face_Specular.dds')           512  512 BC5_UNORM   # word suffix: skip
+Make $srcD (Join-Path $face 'TintMaskBC4_d.dds')          1024 1024 BC4_UNORM   # mask: single channel is fine
+Make $srcD (Join-Path $base 'BC4MaleHead_d.dds')          1024 1024 BC4_UNORM   # head diffuse: not fine
 Make $srcD (Join-Path $face 'ColourStrip.dds')              64  128 BC1_UNORM   # non-square: Review
 Make $srcD (Join-Path $hair 'Headgear01_d.dds')          2048 2048 BC1_UNORM   # hair: must be ignored
 Make $srcD (Join-Path $dis  'DisabledHead_d.dds')         512  512 BC1_UNORM   # disabled mod: ignored
@@ -106,6 +108,8 @@ Copy-Item $settings $backup -Force
     Set-Content $settings
 
 try {
+    $baseCountBefore = (Get-ChildItem -LiteralPath $base -Filter *.dds).Count
+
     Write-Host ''
     Write-Host 'RUN 1 - dry run' -ForegroundColor Cyan
     $logsBefore = @(Get-ChildItem (Join-Path $Tool 'Logs') -Filter *.csv -EA SilentlyContinue).Name
@@ -125,7 +129,7 @@ try {
     Check 'BC1 diffuse kept as BC1'       ($by['TestMaleHead_d.dds'].Action -eq 'Skip') $by['TestMaleHead_d.dds'].Action
     Check 'BC3 diffuse kept as BC3'       ($by['AlphaMaleHead_d.dds'].Action -eq 'Skip') $by['AlphaMaleHead_d.dds'].Action
     Check 'BC7 diffuse kept as BC7'       ($by['SevenMaleHead_d.dds'].Action -eq 'Skip') $by['SevenMaleHead_d.dds'].Action
-    Check 'BC6H diffuse re-encoded'       ($by['BrokenMaleHead_d.dds'].Action -eq 'Reformat' -and $by['BrokenMaleHead_d.dds'].TargetFormat -eq 'BC7_UNORM') "$($by['BrokenMaleHead_d.dds'].Action)/$($by['BrokenMaleHead_d.dds'].TargetFormat)"
+    Check 'BC6H diffuse re-encoded'       ($by['BrokenMaleHead_d.dds'].Action -eq 'Reformat' -and $by['BrokenMaleHead_d.dds'].TargetFormat -eq 'BC3_UNORM') "$($by['BrokenMaleHead_d.dds'].Action)/$($by['BrokenMaleHead_d.dds'].TargetFormat)"
     Check '_msn BC1 left alone'           ($by['TestMaleHead_msn.dds'].Action -eq 'Skip') $by['TestMaleHead_msn.dds'].Action
     Check 'Face_Specular read as specular'($by['Face_Specular.dds'].Slot -eq 'Specular' -and $by['Face_Specular.dds'].Action -eq 'Skip') "$($by['Face_Specular.dds'].Slot)/$($by['Face_Specular.dds'].Action)"
     Check 'non-square flagged Review'     ($by['ColourStrip.dds'].Action -eq 'Review') $by['ColourStrip.dds'].Action
@@ -133,6 +137,14 @@ try {
     Check 'hair texture not scanned'      (-not $by.ContainsKey('Headgear01_d.dds'))
     Check 'disabled mod not scanned'      (-not $by.ContainsKey('DisabledHead_d.dds'))
     Check 'no BC6H anywhere in targets'   (@($rows | Where-Object { $_.TargetFormat -eq 'BC6H_SF16' }).Count -eq 0)
+
+    # Tint masks and face details are masks, not colour maps, so a single channel
+    # BC4 is a deliberate choice there and must be left alone. On the head itself
+    # a BC4 diffuse really is wrong and still gets fixed.
+    Check 'BC4 tint mask kept'            ($by['TintMaskBC4_d.dds'].Action -eq 'Skip') $by['TintMaskBC4_d.dds'].Action
+    Check 'BC4 head diffuse re-encoded'   ($by['BC4MaleHead_d.dds'].Action -eq 'Reformat' -and
+                                           $by['BC4MaleHead_d.dds'].TargetFormat -eq 'BC3_UNORM') `
+                                          ("{0}/{1}" -f $by['BC4MaleHead_d.dds'].Action, $by['BC4MaleHead_d.dds'].TargetFormat)
 
     # Naming output after its source makes paths ~50 characters longer than a
     # shared folder would, so anything that would cross the Windows limit has to
@@ -173,10 +185,12 @@ try {
     }
     if (Test-Path -LiteralPath $outB) {
         $f = (& $texdiag info -nologo $outB 2>$null | Select-String 'format' | ForEach-Object { ($_ -split '=')[1].Trim() })
-        Check 'BC6H output is now BC7'     ($f -eq 'BC7_UNORM') "format=$f"
+        Check 'BC6H output is now BC3'     ($f -eq 'BC3_UNORM') "format=$f"
     }
 
-    Check 'source mod untouched'          ((Get-ChildItem $base -Filter *.dds).Count -eq 8)
+    # Counted rather than hard-coded, so adding a fixture does not break this.
+    Check 'source mod untouched'          ((Get-ChildItem -LiteralPath $base -Filter *.dds).Count -eq $baseCountBefore) `
+                                          ("now {0}, was {1}" -f (Get-ChildItem -LiteralPath $base -Filter *.dds).Count, $baseCountBefore)
     $srcInfo = & $texdiag info -nologo (Join-Path $base 'TestMaleHead_s.dds') 2>$null
     $srcW = ($srcInfo | Select-String 'width' | ForEach-Object { ($_ -split '=')[1].Trim() })
     Check 'source specular still 1024'    ($srcW -eq '1024') "width=$srcW"

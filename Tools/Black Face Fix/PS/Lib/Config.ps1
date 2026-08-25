@@ -145,8 +145,9 @@ function Import-BffSlotRules {
     }
 
     return [pscustomobject]@{
-        Rules       = $rules
-        DefaultSlot = $data.DefaultSlot
+        Rules            = $rules
+        DefaultSlot      = $data.DefaultSlot
+        TintExtraFormats = @(if ($data.ContainsKey('TintExtraFormats')) { $data.TintExtraFormats } else { @() })
     }
 }
 
