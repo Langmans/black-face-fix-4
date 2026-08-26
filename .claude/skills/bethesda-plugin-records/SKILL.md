@@ -50,6 +50,10 @@ Things that will bite you:
 - **XXXX overflow.** A subrecord of type `XXXX` carries a uint32 that is the real length of the
   *next* subrecord, whose own length field reads 0. Handle it or you will desync.
 - **The file header.** The first record is `TES4`; start walking at `24 + its dataSize`.
+- **Empty GRUPs are legal and have `groupSize` exactly 24.** `Fallout4.esm` has one
+  (`TREE`) about 17 MB in. Guarding with `if ($groupSize -le 24) { break }` stops the
+  walk there and silently hides everything after it - including `NPC_`, `CELL`,
+  `QUST` and `INFO`. Bail only on `< 24`, and skip a 24 by advancing 24.
 - **FormIDs are load-order relative.** The top byte is an index into that plugin's master list
   (`MAST` subrecords in the `TES4` header, in order). The plugin's own records use the index one
   past the last master. So `SNDD=030026D8` means "FormID `0026D8` in master[3]".
