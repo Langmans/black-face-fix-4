@@ -22,11 +22,17 @@
             DefaultFormat  = 'BC5_UNORM'
         },
         @{
-            # Model-space normal. Deliberately NOT in the Normal slot: an _msn map
-            # stores all three axes, so it is an RGB texture and the vanilla ones
-            # ship as BC1 and BC3 (FemaleHeadWeathered1_msn.DDS is BC1_UNORM,
-            # PiperHead_msn.DDS is BC3_UNORM). Forcing BC5 on those would throw the
-            # blue axis away and break the map.
+            # Model-space normal. Deliberately NOT in the Normal slot: an asset _msn
+            # really does use all three axes. Measured on the ones the game ships,
+            # the blue channel averages 0.58 (FemaleHeadWeathered1_msn, BC1), 0.58
+            # (PiperHead_msn, BC3) and 0.72 (SupermutantHead_msn, BC1). Forcing BC5
+            # on those would throw the blue axis away and break the map.
+            #
+            # Baked FaceGen under FaceCustomization is a different animal despite
+            # sharing the suffix: there the blue channel is flat zero, in Bethesda's
+            # own Creation Club bakes as much as in anything a tool produces. Those
+            # are two-channel maps, so BC5 is a reasonable format for them and this
+            # slot's list is stricter than it needs to be for that case.
             Slot           = 'ModelSpaceNormal'
             Suffixes       = @('_msn')
             AllowedFormats = @(
