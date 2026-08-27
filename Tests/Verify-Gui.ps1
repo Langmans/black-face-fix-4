@@ -68,6 +68,20 @@ foreach ($c in $form.Controls) { if ($c -is [System.Windows.Forms.DataGridView])
 Check 'Scan button found' ($null -ne $scan)
 Check 'grid found'        ($null -ne $grid)
 
+# The vanilla-format box sits on a third row, which only exists because the top
+# panel was made taller for it. A control placed past the panel's edge is simply
+# not drawn, so the bounds are worth asserting rather than eyeballing.
+$vanillaBox = Find-Control -Parent $form -Text 'Force vanilla formats' -Type 'CheckBox'
+Check 'vanilla format box found' ($null -ne $vanillaBox)
+if ($vanillaBox) {
+    Check 'vanilla format box fits the panel' `
+        ($vanillaBox.Bottom -le $vanillaBox.Parent.Height) `
+        ("bottom={0} panel={1}" -f $vanillaBox.Bottom, $vanillaBox.Parent.Height)
+    Check 'vanilla format box starts off' `
+        ($vanillaBox.Checked -eq [bool] $settings.Conversion.ForceVanillaFormats) `
+        ("box={0} setting={1}" -f $vanillaBox.Checked, $settings.Conversion.ForceVanillaFormats)
+}
+
 $handles = $form.Tag
 Check 'test handles exposed' ($null -ne $handles -and $null -ne $handles.State)
 

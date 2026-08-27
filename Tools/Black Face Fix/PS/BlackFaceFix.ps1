@@ -22,6 +22,13 @@ Scan and report, never write. The report is identical either way.
 Re-encode textures that already match the profile. Off by default, because
 re-encoding a correct texture only costs quality.
 
+.PARAMETER VanillaFormats
+Re-encode every texture to the format Fallout 4 itself ships for its slot, rather
+than keeping any format the slot allows. The engine builds a face from texture
+arrays and an array cannot hold two formats, so this guarantees the set is
+internally consistent. Off by default - see the note on the setting in
+Config\Settings.psd1 for when it is the wrong thing to do.
+
 .PARAMETER Yes
 Skip the confirmation prompt.
 
@@ -46,6 +53,7 @@ param(
     [string] $ProfileName,
     [switch] $DryRun,
     [switch] $Force,
+    [switch] $VanillaFormats,
     [switch] $Yes,
     [switch] $Restore,
     [ValidateSet('OutputMod', 'InPlace')] [string] $OutputMode,
@@ -84,6 +92,7 @@ function Invoke-Main {
     if ($OutputMode) { $settings.Output.Mode = $OutputMode }
     if ($NoArchives) { $settings.Scope.IncludeArchives = $false }
     if ($FixArchives){ $settings.Scope.FixArchives     = $true }
+    if ($VanillaFormats) { $settings.Conversion.ForceVanillaFormats = $true }
 
     # This is also the first call that resolves texconv/texdiag, and the resolver
     # caches, so passing $settings here fixes the choice for the whole run.

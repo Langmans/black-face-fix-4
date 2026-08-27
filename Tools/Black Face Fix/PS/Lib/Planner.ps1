@@ -98,14 +98,27 @@ function New-BffPlan {
     # Keep whatever the source already is when it is legal for this slot. Bethesda
     # ships BC7 face diffuses, the CK wiki asks for BC1 and mods use BC3 for alpha;
     # all three are fine, and re-encoding a valid texture only loses quality.
-    $plan.FormatOk = $rule.AllowsFormat($Texture.Format)
-
-    # Masks under FaceDetails and TintMasks may also use the extra formats from
-    # SlotRules.psd1 - see the comment there for why BC4 belongs on that list.
+    #
+    # ForceVanillaFormats narrows that to the one format the game itself ships for
+    # the slot, so a texture array cannot end up holding two of them. See the
+    # comment on the setting in Settings.psd1 for what that buys and what it costs.
+    # A slot that accepts any format opts out either way: '*' means the slot takes
+    # no part in the matching, so there is nothing to make consistent.
+    $forceVanilla = ($Settings.Conversion.ForceVanillaFormats -and $rule.AllowedFormats -notcontains '*')
     $extra = @()
-    if ($Texture.IsTintMask -and $SlotRules.PSObject.Properties['TintExtraFormats']) {
-        $extra = @($SlotRules.TintExtraFormats)
-        if (-not $plan.FormatOk -and $extra -contains $Texture.Format) { $plan.FormatOk = $true }
+
+    if ($forceVanilla) {
+        $plan.FormatOk = ($Texture.Format -eq $rule.DefaultFormat)
+    }
+    else {
+        $plan.FormatOk = $rule.AllowsFormat($Texture.Format)
+
+        # Masks under FaceDetails and TintMasks may also use the extra formats from
+        # SlotRules.psd1 - see the comment there for why BC4 belongs on that list.
+        if ($Texture.IsTintMask -and $SlotRules.PSObject.Properties['TintExtraFormats']) {
+            $extra = @($SlotRules.TintExtraFormats)
+            if (-not $plan.FormatOk -and $extra -contains $Texture.Format) { $plan.FormatOk = $true }
+        }
     }
 
     $plan.TargetFormat = if ($plan.FormatOk) { $Texture.Format } else { $rule.DefaultFormat }
@@ -120,7 +133,12 @@ function New-BffPlan {
                        $Profile.Name, $Texture.Slot.ToLower(), $target, $Texture.Width, $Texture.Height, $verb)
     }
 
-    if (-not $plan.FormatOk) {
+    if (-not $plan.FormatOk -and $forceVanilla) {
+        $formatReason = ("{0} is re-encoded as {1}: Fallout 4 ships every {2} map as {1}, and one " +
+                         "texture array cannot hold two formats (Conversion.ForceVanillaFormats)") -f
+                        $Texture.Format, $rule.DefaultFormat, $Texture.Slot.ToLower()
+    }
+    elseif (-not $plan.FormatOk) {
         $allowed = ((@($rule.AllowedFormats) + $extra) -join ', ')
         $formatReason = ("{0} is not valid for a {1} map (allowed: {2}), so it is re-encoded as {3}" -f
                          $Texture.Format, $Texture.Slot.ToLower(), $allowed, $rule.DefaultFormat)

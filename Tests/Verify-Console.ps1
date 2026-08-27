@@ -92,6 +92,7 @@ Make $srcD (Join-Path $base 'AlphaMaleHead_d.dds')       1024 1024 BC3_UNORM   #
 Make $srcD (Join-Path $base 'SevenMaleHead_d.dds')       1024 1024 BC7_UNORM   # must be skipped
 Make $srcD (Join-Path $base 'BrokenMaleHead_d.dds')      1024 1024 BC6H_SF16   # must be re-encoded
 Make $srcS (Join-Path $base 'TestMaleHead_msn.dds')      1024 1024 BC1_UNORM   # msn: BC1 is legal, skip
+Make $srcD (Join-Path $base 'TestMaleHead_sss.dds')      2048 2048 BC7_UNORM   # skin: never touched, either way
 Make $srcD (Join-Path $base 'TestMaleBody_d.dds')        4096 4096 BC7_UNORM   # body: must be ignored
 Make $srcD (Join-Path $face 'Face_Specular.dds')           512  512 BC5_UNORM   # word suffix: skip
 Make $srcD (Join-Path $face 'TintMaskBC4_d.dds')          1024 1024 BC4_UNORM   # mask: single channel is fine
@@ -175,6 +176,53 @@ try {
     Check 'BC4 head diffuse re-encoded'   ($by['BC4MaleHead_d.dds'].Action -eq 'Reformat' -and
                                            $by['BC4MaleHead_d.dds'].TargetFormat -eq 'BC3_UNORM') `
                                           ("{0}/{1}" -f $by['BC4MaleHead_d.dds'].Action, $by['BC4MaleHead_d.dds'].TargetFormat)
+    Check 'skin map left alone'           ($by['TestMaleHead_sss.dds'].Action -eq 'Skip') $by['TestMaleHead_sss.dds'].Action
+
+    # --------------------------------------------------- -VanillaFormats
+    # By default a texture in any format its slot allows is kept. With the switch
+    # everything lands on the single format Fallout 4 itself ships for the slot,
+    # so a texture array cannot end up holding two of them.
+    Write-Host ''
+    Write-Host 'RUN 1b - dry run with -VanillaFormats' -ForegroundColor Cyan
+
+    & (Join-Path $Tool 'PS\BlackFaceFix.ps1') -DryRun -NoPause -MO2Path (Join-Path $Sandbox 'MO2') `
+                                              -NoArchives -All -VanillaFormats | Out-Null
+
+    # Newest CSV wins here rather than "one that did not exist before": both runs
+    # are in the same suite and the log name is only accurate to the second.
+    $csvV = Get-ChildItem (Join-Path $Tool 'Logs') -Filter *.csv |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $byV = @{}; foreach ($r in (Import-Csv $csvV.FullName)) { $byV[$r.File] = $r }
+
+    function CheckForced {
+        param([string] $Label, [string] $File, [string] $Action, [string] $Format)
+        $row = $byV[$File]
+        $ok  = ($row.Action -eq $Action) -and ($Action -eq 'Skip' -or $row.TargetFormat -eq $Format)
+        Check $Label $ok ("{0}/{1}" -f $row.Action, $row.TargetFormat)
+    }
+
+    CheckForced 'forced: BC1 diffuse -> BC3'  'TestMaleHead_d.dds'   'Reformat' 'BC3_UNORM'
+    CheckForced 'forced: BC7 diffuse -> BC3'  'SevenMaleHead_d.dds'  'Reformat' 'BC3_UNORM'
+    CheckForced 'forced: BC4 tint mask -> BC3' 'TintMaskBC4_d.dds'   'Reformat' 'BC3_UNORM'
+    CheckForced 'forced: _msn BC1 -> BC3'     'TestMaleHead_msn.dds' 'Reformat' 'BC3_UNORM'
+    CheckForced 'forced: BC3 diffuse still skipped' 'AlphaMaleHead_d.dds' 'Skip' ''
+    CheckForced 'forced: BC5 specular still skipped' 'GoodMaleHead_s.dds'  'Skip' ''
+    CheckForced 'forced: skin map still untouched'   'TestMaleHead_sss.dds' 'Skip' ''
+
+    # The resize still has to happen, and it still has to land on BC5.
+    CheckForced 'forced: specular still resized' 'TestMaleHead_s.dds' 'Resize' 'BC5_UNORM'
+
+    Check 'forced: reason names the setting' `
+        ($byV['TestMaleHead_d.dds'].Reason -match 'ForceVanillaFormats') `
+        $byV['TestMaleHead_d.dds'].Reason
+
+    # The whole point: one format per slot across everything that is planned.
+    $perSlot = @(Import-Csv $csvV.FullName |
+                 Where-Object { $_.Action -notin @('Review', 'Error') -and $_.Slot -ne 'Skin' } |
+                 Group-Object Slot |
+                 Where-Object { @($_.Group.TargetFormat | Sort-Object -Unique).Count -gt 1 })
+    Check 'forced: one target format per slot' ($perSlot.Count -eq 0) `
+        (($perSlot | ForEach-Object { '{0}: {1}' -f $_.Name, (($_.Group.TargetFormat | Sort-Object -Unique) -join ',') }) -join '; ')
 
     # Naming output after its source makes paths ~50 characters longer than a
     # shared folder would, so anything that would cross the Windows limit has to

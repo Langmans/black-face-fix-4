@@ -130,6 +130,31 @@
         # Adds -bcmax -sepalpha on BC7 targets. Slower, noticeably better quality.
         UseBcMax      = $true
 
+        # $false (default): a texture already in one of its slot's AllowedFormats
+        # is kept as it is. $true: every texture is re-encoded to its slot's
+        # DefaultFormat, which is the format Fallout 4 itself ships for that slot.
+        #
+        # Why the option exists. The engine builds a face from four texture arrays,
+        # and a D3D texture array needs every slice at the same size, format and mip
+        # count. Measured against the game's own archives, vanilla holds to that
+        # exactly: all 57 textures under Character Assets\TintMasks are BC1_UNORM,
+        # all 146 face detail diffuses are BC3_UNORM, the normals BC5_UNORM, the
+        # speculars BC5_UNORM. Not one exception. Keeping a mod's own valid-but-
+        # different format leaves an array holding, say, BC1 next to BC7 - which is
+        # the thing that cannot work.
+        #
+        # Why it is off by default. Which textures actually share an array is
+        # decided by the tint records in the plugin, not by the folder a file sits
+        # in. Looks Menu Customization Compendium ships 209 overlays under
+        # FaceDetails as BC1 with a single mip - the TintMasks profile rather than
+        # the FaceDetails one - and those faces are not black, so those overlays
+        # evidently live in an array of their own. Forcing them to BC3 would make
+        # them the odd one out instead of fixing anything.
+        #
+        # Slots whose AllowedFormats is '*' (skin/subsurface maps) are never
+        # touched by this: they take no part in the array matching.
+        ForceVanillaFormats = $false
+
         # Safety rails. Anything that trips these is reported as 'Review' and is
         # never converted, because it is almost certainly not a face texture:
         # LUTs, palettes and lookup strips are small and non-square.

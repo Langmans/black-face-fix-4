@@ -65,7 +65,7 @@ function Show-BffGui {
     # ---------------------------------------------------------------- top panel
     $top          = New-Object System.Windows.Forms.Panel
     $top.Dock     = 'Top'
-    $top.Height   = 168
+    $top.Height   = 198
     $top.Padding  = New-Object System.Windows.Forms.Padding(10)
     $form.Controls.Add($top)
 
@@ -182,6 +182,12 @@ function Show-BffGui {
     $chkFullPaths   = New-Check 'Show full paths'        844 137 150 $false
     $top.Controls.AddRange(@($scanButton, $applyButton, $restoreButton, $logButton,
                              $chkOnlyChanges, $chkFaceCust, $chkFullPaths))
+
+    $chkVanillaFmt = New-Check 'Force vanilla formats' 12 168 176 ([bool] $Settings.Conversion.ForceVanillaFormats)
+    $vanillaHint           = New-Label ('re-encodes every texture to the format Fallout 4 ships for its slot, ' +
+                                        'so one texture array cannot end up holding two') 194 171 700
+    $vanillaHint.ForeColor = [System.Drawing.Color]::DimGray
+    $top.Controls.AddRange(@($chkVanillaFmt, $vanillaHint))
 
     # ---------------------------------------------------------- mod picker
     # One tick per SOURCE mod, so a run can be narrowed without editing settings.
@@ -370,6 +376,7 @@ function Show-BffGui {
         $state.Settings.Scope.IncludeArchives          = $chkArchives.Checked
         $state.Settings.Scope.FixArchives               = ($chkArchives.Checked -and $chkFixArchives.Checked)
         $state.Settings.Scope.IncludeFaceCustomization = $chkFaceCust.Checked
+        $state.Settings.Conversion.ForceVanillaFormats = $chkVanillaFmt.Checked
         $state.Settings.Output.Mode = if ($outputBox.SelectedIndex -eq 1) { 'InPlace' } else { 'OutputMod' }
     }
 
