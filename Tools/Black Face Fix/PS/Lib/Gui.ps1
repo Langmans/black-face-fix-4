@@ -44,6 +44,7 @@ function Show-BffGui {
         LastCsv     = ''
         LastLog     = ''
         ArchiveEntries = @{}
+        Populating     = $false
     }
 
     # The GUI launcher hides the console, so printing would go nowhere. Lines are
@@ -312,10 +313,12 @@ function Show-BffGui {
     $fillModList = {
         $mods = @($state.Plans | Where-Object { $_.NeedsWork() } |
                   ForEach-Object { $_.Texture.ModName } | Sort-Object -Unique)
+        $state.Populating = $true
         $modList.BeginUpdate()
         $modList.Items.Clear()
         foreach ($m in $mods) { [void] $modList.Items.Add($m, $true) }
         $modList.EndUpdate()
+        $state.Populating = $false
     }
 
     $fillGrid = {
@@ -615,8 +618,14 @@ function Show-BffGui {
         for ($i = 0; $i -lt $modList.Items.Count; $i++) { $modList.SetItemChecked($i, $false) }
         if ($state.Scanned) { & $fillGrid }
     })
-    # ItemCheck fires before the new state is stored, so the refresh is deferred.
-    $modList.Add_ItemCheck({ [void] $form.BeginInvoke([Action] { if ($state.Scanned) { & $fillGrid } }) })
+    # ItemCheck fires before the new state is stored, so the refresh has to be
+    # deferred. Two guards: the event also fires while $fillModList is adding the
+    # items, and BeginInvoke throws until the window handle exists - which is the
+    # case during a -BuildOnly scan and during the very first population.
+    $modList.Add_ItemCheck({
+        if ($state.Populating -or -not $form.IsHandleCreated) { return }
+        [void] $form.BeginInvoke([Action] { if ($state.Scanned) { & $fillGrid } })
+    })
 
     $chkFullPaths.Add_CheckedChanged({
         $grid.Columns['Source'].Visible      = $chkFullPaths.Checked

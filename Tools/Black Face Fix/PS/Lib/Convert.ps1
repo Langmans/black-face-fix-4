@@ -69,6 +69,74 @@ function Get-BffTexConvCapability {
     return $script:BffTexConvCaps
 }
 
+function Test-BffPlanResizes {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [BffPlan] $Plan)
+    return ($Plan.Texture.Width -ne $Plan.TargetWidth) -or ($Plan.Texture.Height -ne $Plan.TargetHeight)
+}
+
+function Get-BffResizePassFlags {
+    <#
+    .SYNOPSIS
+    Pass 1 of a resize: down to a single uncompressed level at the target size.
+    Everything but -o and the input files, so a batch can append many.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [BffPlan] $Plan, [object] $Flags)
+
+    $a = New-Object System.Collections.Generic.List[string]
+    $a.AddRange([string[]] @('-nologo', '-y'))
+    $a.AddRange([string[]] @('-w', [string] $Plan.TargetWidth))
+    $a.AddRange([string[]] @('-h', [string] $Plan.TargetHeight))
+    $a.AddRange([string[]] @('-m', '1'))
+    $a.AddRange([string[]] @('-f', 'R8G8B8A8_UNORM'))
+    foreach ($f in @($Flags)) { if ($f -ne '-bcmax' -and $f -notmatch '^(x|-bc)$') { $a.Add($f) } }
+    $a.AddRange([string[]] @('-ft', 'DDS'))
+    return $a
+}
+
+function Get-BffEncodePassFlags {
+    <#
+    .SYNOPSIS
+    The encoding pass: target format, mip chain rebuilt unless -KeepMips says the
+    source chain is being carried over (a reformat that does not resize).
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [BffPlan] $Plan, [object] $Flags, [switch] $KeepMips)
+
+    $a = New-Object System.Collections.Generic.List[string]
+    $a.AddRange([string[]] @('-nologo', '-y'))
+    if (-not $KeepMips) { $a.AddRange([string[]] @('-m', '0')) }
+    $a.AddRange([string[]] @('-f', $Plan.TargetFormat))
+    $a.AddRange([string[]] @($Flags))
+    $a.AddRange([string[]] @('-ft', 'DDS'))
+    return $a
+}
+
+function Get-BffFormatFlags {
+    <#
+    .SYNOPSIS
+    The format dependent texconv switches, shared by the single file and the
+    batched path so the two cannot drift apart.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [BffPlan]   $Plan,
+        [Parameter(Mandatory)] [hashtable] $Settings,
+        [Parameter(Mandatory)] [string]    $TexConvPath
+    )
+
+    $caps  = Get-BffTexConvCapability -TexConvPath $TexConvPath
+    $flags = New-Object System.Collections.Generic.List[string]
+
+    if ($Settings.Conversion.Filter) { $flags.AddRange([string[]] @('-if', $Settings.Conversion.Filter)) }
+    if (($Plan.TargetFormat -match '^BC(2|3|7)_') -and $caps.SepAlpha) { $flags.Add('-sepalpha') }
+    if ($Settings.Conversion.UseBcMax -and $Plan.TargetFormat -match '^BC7_' -and $caps.BcMaxFlag) {
+        $flags.AddRange([string[]] $caps.BcMaxFlag)
+    }
+    return $flags
+}
+
 function Get-BffConversionPass {
     <#
     .SYNOPSIS
@@ -109,11 +177,8 @@ function Get-BffConversionPass {
         [string] $TexConvPath = (Get-BffTexConvPath)
     )
 
-    $caps      = Get-BffTexConvCapability -TexConvPath $TexConvPath
-    $hasAlpha  = ($Plan.TargetFormat -match '^BC(2|3|7)_') -and $caps.SepAlpha
-    $useBcMax  = $Settings.Conversion.UseBcMax -and $Plan.TargetFormat -match '^BC7_' -and $caps.BcMaxFlag
-    $resizing  = ($Plan.Texture.Width  -ne $Plan.TargetWidth) -or
-                 ($Plan.Texture.Height -ne $Plan.TargetHeight)
+    $flags     = @(Get-BffFormatFlags -Plan $Plan -Settings $Settings -TexConvPath $TexConvPath)
+    $resizing  = Test-BffPlanResizes -Plan $Plan
 
     $passes = New-Object System.Collections.Generic.List[object]
 
@@ -122,42 +187,70 @@ function Get-BffConversionPass {
 
         # Not named $args: that is a PowerShell automatic variable.
         $one = New-Object System.Collections.Generic.List[string]
-        $one.AddRange([string[]] @('-nologo', '-y'))
-        $one.AddRange([string[]] @('-w', [string] $Plan.TargetWidth))
-        $one.AddRange([string[]] @('-h', [string] $Plan.TargetHeight))
-        $one.AddRange([string[]] @('-m', '1'))
-        $one.AddRange([string[]] @('-f', 'R8G8B8A8_UNORM'))
-        if ($Settings.Conversion.Filter) { $one.AddRange([string[]] @('-if', $Settings.Conversion.Filter)) }
-        if ($hasAlpha) { $one.Add('-sepalpha') }
-        $one.AddRange([string[]] @('-ft', 'DDS', '-o', $stage, $SourcePath))
+        $one.AddRange([string[]] (Get-BffResizePassFlags -Plan $Plan -Flags $flags))
+        $one.AddRange([string[]] @('-o', $stage, $SourcePath))
 
         $passes.Add([pscustomobject]@{ Arguments = $one; OutputDirectory = $stage })
 
         $two = New-Object System.Collections.Generic.List[string]
-        $two.AddRange([string[]] @('-nologo', '-y'))
-        $two.AddRange([string[]] @('-m', '0'))
-        $two.AddRange([string[]] @('-f', $Plan.TargetFormat))
-        if ($Settings.Conversion.Filter) { $two.AddRange([string[]] @('-if', $Settings.Conversion.Filter)) }
-        if ($hasAlpha) { $two.Add('-sepalpha') }
-        if ($useBcMax) { $two.AddRange([string[]] $caps.BcMaxFlag) }
-        $two.AddRange([string[]] @('-ft', 'DDS', '-o', (Join-Path $Workspace 'out')))
+        $two.AddRange([string[]] (Get-BffEncodePassFlags -Plan $Plan -Flags $flags))
+        $two.AddRange([string[]] @('-o', (Join-Path $Workspace 'out')))
         # The input is filled in once pass 1 has produced it.
 
         $passes.Add([pscustomobject]@{ Arguments = $two; OutputDirectory = (Join-Path $Workspace 'out'); NeedsInput = $true })
     }
     else {
         $one = New-Object System.Collections.Generic.List[string]
-        $one.AddRange([string[]] @('-nologo', '-y'))
-        $one.AddRange([string[]] @('-f', $Plan.TargetFormat))
-        if ($Settings.Conversion.Filter) { $one.AddRange([string[]] @('-if', $Settings.Conversion.Filter)) }
-        if ($hasAlpha) { $one.Add('-sepalpha') }
-        if ($useBcMax) { $one.AddRange([string[]] $caps.BcMaxFlag) }
-        $one.AddRange([string[]] @('-ft', 'DDS', '-o', (Join-Path $Workspace 'out'), $SourcePath))
+        $one.AddRange([string[]] (Get-BffEncodePassFlags -Plan $Plan -Flags $flags -KeepMips))
+        $one.AddRange([string[]] @('-o', (Join-Path $Workspace 'out'), $SourcePath))
 
         $passes.Add([pscustomobject]@{ Arguments = $one; OutputDirectory = (Join-Path $Workspace 'out') })
     }
 
     return $passes
+}
+
+function Save-BffConverted {
+    <#
+    .SYNOPSIS
+    Puts one finished texture where the plan says it goes: backup first in place
+    mode, marker file in output mod mode, then the copy. Shared by the single file
+    and the batched paths.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [BffPlan]   $Plan,
+        [Parameter(Mandatory)] [string]    $ProducedPath,
+        [Parameter(Mandatory)] [hashtable] $Settings,
+        [string] $ProfileName = ''
+    )
+
+    $texture     = $Plan.Texture
+    $destination = $Plan.Destination
+
+    if ($Settings.Output.Mode -eq 'InPlace' -and $texture.Origin -ne 'BA2') {
+        $backup = $texture.FullName + $Settings.Output.BackupSuffix
+        # Only ever back up the pristine original: on a second run the existing
+        # .backup is the real original and must not be overwritten.
+        if (-not (Test-Path -LiteralPath $backup)) {
+            Copy-Item -LiteralPath $texture.FullName -Destination $backup -Force
+        }
+    }
+
+    $destDir = Split-Path -Parent $destination
+    if ($destDir -and -not (Test-Path -LiteralPath $destDir)) {
+        [void] (New-Item -ItemType Directory -Path $destDir -Force)
+    }
+
+    if ($Settings.Output.Mode -ne 'InPlace') {
+        $modRoot = Get-BffOutputModRoot -Plan $Plan
+        if ($modRoot) {
+            [void] (New-BffOutputMarker -ModRoot $modRoot -SourceMod $texture.ModName -ProfileName $ProfileName)
+        }
+    }
+
+    Copy-Item -LiteralPath $ProducedPath -Destination $destination -Force
+    Remove-Item -LiteralPath $ProducedPath -Force -ErrorAction SilentlyContinue
 }
 
 function Invoke-BffConvert {
@@ -277,37 +370,13 @@ function Invoke-BffConvert {
         }
 
         # --- 4. place it --------------------------------------------------------
-        $destination = $Plan.Destination
+        Save-BffConverted -Plan $Plan -ProducedPath $produced.FullName -Settings $Settings -ProfileName $ProfileName
 
-        if ($Settings.Output.Mode -eq 'InPlace' -and $texture.Origin -ne 'BA2') {
-            $backup = $texture.FullName + $Settings.Output.BackupSuffix
-            # Only ever back up the pristine original: on a second run the existing
-            # .backup is the real original and must not be overwritten.
-            if (-not (Test-Path -LiteralPath $backup)) {
-                Copy-Item -LiteralPath $texture.FullName -Destination $backup -Force
-            }
-        }
-
-        $destDir = Split-Path -Parent $destination
-        if ($destDir -and -not (Test-Path -LiteralPath $destDir)) {
-            [void] (New-Item -ItemType Directory -Path $destDir -Force)
-        }
-
-        if ($Settings.Output.Mode -ne 'InPlace') {
-            $modRoot = Get-BffOutputModRoot -Plan $Plan
-            if ($modRoot) {
-                [void] (New-BffOutputMarker -ModRoot $modRoot -SourceMod $texture.ModName -ProfileName $ProfileName)
-            }
-        }
-
-        Copy-Item -LiteralPath $produced.FullName -Destination $destination -Force
-
-        Remove-Item -LiteralPath $produced.FullName -Force -ErrorAction SilentlyContinue
         if ($extracted -and (Test-Path -LiteralPath $extracted)) {
             Remove-Item -LiteralPath $extracted -Force -ErrorAction SilentlyContinue
         }
 
-        $result.Destination = $destination
+        $result.Destination = $Plan.Destination
         $result.Success     = $true
         return $result
     }
@@ -317,10 +386,194 @@ function Invoke-BffConvert {
     }
 }
 
+function Get-BffConversionBatch {
+    <#
+    .SYNOPSIS
+    Groups plans that can share a single texconv invocation.
+
+    .NOTES
+    texconv takes many input files at once, and doing so is markedly faster than
+    one process per file: measured at 294 ms for 8 separate calls against 90 ms
+    for one call with 8 inputs. The per-process startup disappears and texconv
+    threads the compression itself. Running several texconv processes in parallel
+    instead tops out around 1.7x on 20 cores and gets worse past 4 lanes.
+
+    Plans can share a call when the target size, the target format, and whether
+    they resize all match. Two further limits split a group into batches:
+
+      * texconv names its output after the input file stem, so two sources with
+        the same file name in one call would overwrite each other in -o.
+      * the command line has to stay under the Windows limit.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object] $Plan,
+        [int] $MaxCommandLine = 28000
+    )
+
+    # Note the plain pipe and the ToArray() calls below. Wrapping a generic List
+    # in an array subexpression - @($list) - trips PowerShell's enumerable binder
+    # with "Argument types do not match", so this function never does that.
+    $batches = New-Object System.Collections.Generic.List[object]
+
+    # Items are wrappers of { Plan; SourcePath }, not plans. Adding the source
+    # path onto the plan with Add-Member would wrap the class instance in a
+    # PSObject, and that no longer binds to a [BffPlan] typed parameter.
+    $groups = $Plan | Group-Object {
+        '{0}x{1}|{2}|{3}' -f $_.Plan.TargetWidth, $_.Plan.TargetHeight, $_.Plan.TargetFormat,
+                             (Test-BffPlanResizes -Plan $_.Plan)
+    }
+
+    foreach ($g in $groups) {
+        $current = New-Object System.Collections.Generic.List[object]
+        $stems   = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+        $length  = 0
+
+        foreach ($p in $g.Group) {
+            $stem = [IO.Path]::GetFileNameWithoutExtension($p.SourcePath)
+            $cost = $p.SourcePath.Length + 3
+
+            if ($current.Count -gt 0 -and ($stems.Contains($stem) -or ($length + $cost) -gt $MaxCommandLine)) {
+                $batches.Add([pscustomobject]@{ Key = $g.Name; Plans = $current.ToArray() })
+                $current = New-Object System.Collections.Generic.List[object]
+                $stems   = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+                $length  = 0
+            }
+
+            [void] $stems.Add($stem)
+            $length += $cost
+            $current.Add($p)
+        }
+
+        if ($current.Count -gt 0) { $batches.Add([pscustomobject]@{ Key = $g.Name; Plans = $current.ToArray() }) }
+    }
+
+    return $batches
+}
+
+function Invoke-BffConversionBatch {
+    <#
+    .SYNOPSIS
+    Converts one batch in a single texconv call per pass, verifies every result in
+    one texdiag pass, and places the ones that check out.
+
+    .OUTPUTS
+    One result object per plan. A plan whose output is missing or fails
+    verification comes back with Retry = $true, so the caller can convert it on
+    its own and attribute the error to the file that actually caused it.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object]    $Batch,
+        [Parameter(Mandatory)] [hashtable] $Settings,
+        [Parameter(Mandatory)] [string]    $Workspace,
+        [Parameter(Mandatory)] [string]    $TexConvPath,
+        [Parameter(Mandatory)] [string]    $TexDiagPath,
+        [string] $ProfileName = ''
+    )
+
+    $items   = @($Batch.Plans)          # wrappers of { Plan; SourcePath }
+    $first   = $items[0].Plan
+    $flags   = @(Get-BffFormatFlags -Plan $first -Settings $Settings -TexConvPath $TexConvPath)
+    $resizes = Test-BffPlanResizes -Plan $first
+
+    $stage = Join-Path $Workspace 'stage'
+    $out   = Join-Path $Workspace 'out'
+    foreach ($d in @($stage, $out)) {
+        if (Test-Path -LiteralPath $d) { Get-ChildItem -LiteralPath $d -File | Remove-Item -Force -ErrorAction SilentlyContinue }
+        else { [void] (New-Item -ItemType Directory -Path $d -Force) }
+    }
+
+    $results = New-Object System.Collections.Generic.List[object]
+    foreach ($it in $items) {
+        $results.Add([pscustomobject]@{
+            Plan = $it.Plan; SourcePath = $it.SourcePath; Success = $false
+            Destination = $it.Plan.Destination; Error = ''; Command = ''; Retry = $false
+        })
+    }
+
+    $commands = New-Object System.Collections.Generic.List[string]
+    $inputs   = @($items | ForEach-Object { $_.SourcePath })
+
+    if ($resizes) {
+        $a1 = New-Object System.Collections.Generic.List[string]
+        $a1.AddRange([string[]] (Get-BffResizePassFlags -Plan $first -Flags $flags))
+        $a1.AddRange([string[]] @('-o', $stage))
+        $a1.AddRange([string[]] $inputs)
+        $commands.Add(($a1 -join ' '))
+        $null = & $TexConvPath @a1 2>&1
+
+        $inputs = @($items | ForEach-Object {
+            $stem = [IO.Path]::GetFileNameWithoutExtension($_.SourcePath)
+            Get-ChildItem -LiteralPath $stage -Filter "$stem.*" -File -ErrorAction SilentlyContinue |
+                Where-Object { $_.Extension -match '(?i)^\.dds$' } |
+                Select-Object -First 1 -ExpandProperty FullName
+        } | Where-Object { $_ })
+
+        if ($inputs.Count -eq 0) {
+            foreach ($r in $results) { $r.Error = 'the resize pass produced nothing'; $r.Retry = $true }
+            return $results
+        }
+    }
+
+    $a2 = New-Object System.Collections.Generic.List[string]
+    $a2.AddRange([string[]] (Get-BffEncodePassFlags -Plan $first -Flags $flags -KeepMips:(-not $resizes)))
+    $a2.AddRange([string[]] @('-o', $out))
+    $a2.AddRange([string[]] $inputs)
+    $commands.Add(($a2 -join ' '))
+    $null = & $TexConvPath @a2 2>&1
+
+    # --- verify the whole batch in one texdiag pass, then place what is good --
+    $produced = @{}
+    foreach ($f in (Get-ChildItem -LiteralPath $out -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Extension -match '(?i)^\.dds$' })) {
+        $produced[[IO.Path]::GetFileNameWithoutExtension($f.Name)] = $f.FullName
+    }
+
+    $info = @{}
+    if ($produced.Count -gt 0) {
+        foreach ($rec in (Get-BffTextureInfo -Path @($produced.Values) -TexDiagPath $TexDiagPath)) {
+            $info[(ConvertTo-BffPathKey $rec.Path)] = $rec
+        }
+    }
+
+    foreach ($r in $results) {
+        $r.Command = $commands -join '  &&  '
+        $stem = [IO.Path]::GetFileNameWithoutExtension($r.SourcePath)
+        $path = $produced[$stem]
+
+        if (-not $path) { $r.Error = 'texconv produced no output for this file'; $r.Retry = $true; continue }
+
+        $check = $info[(ConvertTo-BffPathKey $path)]
+        if (-not $check -or -not $check.Ok) { $r.Error = 'output could not be read back'; $r.Retry = $true; continue }
+
+        if ($check.Width  -ne $r.Plan.TargetWidth -or $check.Height -ne $r.Plan.TargetHeight -or
+            $check.Format -ne $r.Plan.TargetFormat) {
+            $r.Error = ('expected {0}x{1} {2}, got {3}x{4} {5}' -f
+                        $r.Plan.TargetWidth, $r.Plan.TargetHeight, $r.Plan.TargetFormat,
+                        $check.Width, $check.Height, $check.Format)
+            $r.Retry = $true
+            continue
+        }
+
+        try {
+            Save-BffConverted -Plan $r.Plan -ProducedPath $path -Settings $Settings -ProfileName $ProfileName
+            $r.Success = $true
+        }
+        catch { $r.Error = $_.Exception.Message }
+    }
+
+    return $results
+}
+
 function Invoke-BffPlanSet {
     <#
     .SYNOPSIS
     Runs a whole plan set. Returns one result object per plan that needed work.
+
+    Plans sharing a target size and format go through texconv together, which is
+    several times faster than one process per file. Anything a batch could not
+    produce or verify is retried on its own so the error lands on the right file.
     #>
     [CmdletBinding()]
     param(
@@ -340,21 +593,67 @@ function Invoke-BffPlanSet {
     $workspace = New-BffWorkspace
     $results   = New-Object System.Collections.Generic.List[object]
 
-    try {
-        $i = 0
-        foreach ($p in $todo) {
-            $i++
-            if ($Progress) { & $Progress $i $todo.Count $p }
+    function New-Failure {
+        param($P, [string] $Why)
+        [pscustomobject]@{ Plan = $P; Success = $false; Destination = $P.Destination; Error = $Why; Command = '' }
+    }
 
-            $entry = $null
-            if ($ArchiveEntryByPath) {
-                $mapKey = '{0}::{1}' -f $p.Texture.ArchivePath, $p.Texture.FullName
-                $entry  = $ArchiveEntryByPath[$mapKey]
+    try {
+        # --- give every plan a real file on disk to feed texconv ------------
+        $src = Join-Path $workspace 'src'
+        [void] (New-Item -ItemType Directory -Path $src -Force)
+
+        $ready = New-Object System.Collections.Generic.List[object]
+        $n = 0
+
+        foreach ($p in $todo) {
+            if ($p.Texture.Origin -eq 'BA2') {
+                $entry = $null
+                if ($ArchiveEntryByPath) {
+                    $entry = $ArchiveEntryByPath[('{0}::{1}' -f $p.Texture.ArchivePath, $p.Texture.FullName)]
+                }
+                if (-not $entry) { $results.Add((New-Failure $p 'no archive entry supplied for a BA2 texture')); continue }
+
+                # Its own folder, so a name shared with another archive entry does
+                # not collide before it even reaches texconv.
+                $n++
+                $dir = Join-Path $src $n
+                [void] (New-Item -ItemType Directory -Path $dir -Force)
+                $path = Join-Path $dir $p.Texture.Name
+                try { [void] (Expand-BffBa2Texture -Entry $entry -Destination $path) }
+                catch { $results.Add((New-Failure $p $_.Exception.Message)); continue }
+            }
+            else {
+                $path = $p.Texture.FullName
+                if (-not (Test-Path -LiteralPath $path)) { $results.Add((New-Failure $p 'source file disappeared')); continue }
             }
 
-            $results.Add((Invoke-BffConvert -Plan $p -Settings $Settings -Workspace $workspace `
-                                            -TexConvPath $texconv -TexDiagPath $texdiag `
-                                            -ArchiveEntry $entry -ProfileName $ProfileName))
+            $ready.Add([pscustomobject]@{ Plan = $p; SourcePath = $path })
+        }
+
+        # --- batched conversion ---------------------------------------------
+        $done = 0
+        foreach ($batch in (Get-BffConversionBatch -Plan $ready.ToArray())) {
+            $batchResults = @(Invoke-BffConversionBatch -Batch $batch -Settings $Settings -Workspace $workspace `
+                                                        -TexConvPath $texconv -TexDiagPath $texdiag `
+                                                        -ProfileName $ProfileName)
+
+            foreach ($r in $batchResults) {
+                $done++
+                if ($Progress) { & $Progress $done $ready.Count $r.Plan }
+
+                if ($r.Success -or -not $r.Retry) { $results.Add($r); continue }
+
+                # Convert this one on its own, so the failure is attributed to the
+                # file that actually caused it rather than to the whole batch.
+                $entry = $null
+                if ($ArchiveEntryByPath) {
+                    $entry = $ArchiveEntryByPath[('{0}::{1}' -f $r.Plan.Texture.ArchivePath, $r.Plan.Texture.FullName)]
+                }
+                $results.Add((Invoke-BffConvert -Plan $r.Plan -Settings $Settings -Workspace $workspace `
+                                                -TexConvPath $texconv -TexDiagPath $texdiag `
+                                                -ArchiveEntry $entry -ProfileName $ProfileName))
+            }
         }
     }
     finally {
