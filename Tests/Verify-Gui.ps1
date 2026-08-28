@@ -229,9 +229,10 @@ if ($handles) {
         }
     }
 
-    # The GUI has to write the same log and CSV the console run does. It used to
-    # write a log holding nothing but the banner, because the report functions
-    # were only ever called from the console path.
+    # The GUI has to write the same log and CSV the console run does. It is easy
+    # for it not to: the report functions are called from the console path, so a
+    # GUI run that skips them still produces a log file - holding nothing but the
+    # banner.
     Check 'CSV written' ($handles.State.LastCsv -and (Test-Path -LiteralPath $handles.State.LastCsv)) $handles.State.LastCsv
     Check 'log written' ($handles.State.LastLog -and (Test-Path -LiteralPath $handles.State.LastLog)) $handles.State.LastLog
 

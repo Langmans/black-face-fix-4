@@ -192,9 +192,9 @@ function ConvertTo-BffIcon {
 #                               so it is a face texture even though nothing in
 #                               its name says so: Preston_d.dds, Mayor_s.dds
 #
-# Colours carry meaning rather than severity, and are weighted for a white row:
-# an earlier, lighter set was judged on a grey preview sheet and all but
-# disappeared against the grid it actually sits in.
+# Colours carry meaning rather than severity, and are weighted for the white row
+# they sit on: at 16px a light tone on white reads as a smudge rather than as a
+# shape, so these are darker than they look right on their own.
 $script:BffMarkCache = @{}
 
 # 16px a slot, packed tight the way MO2 does. Four is the most any row can show:
