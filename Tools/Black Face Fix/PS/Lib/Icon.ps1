@@ -171,36 +171,43 @@ function ConvertTo-BffIcon {
     finally { $w2.Dispose(); $out.Dispose() }
 }
 
-# ---------------------------------------------------------------- row glyphs
+# ---------------------------------------------------------------- row marks
 #
-# Marks shown next to the reason in the grid. The reason text is the authority;
-# these only let you see the shape of a scan at a glance - which rows are being
-# left alone, which are being rewritten, which want a human.
+# Small marks packed side by side in one column, the way Mod Organizer's Flags
+# and Content columns work: each mark is one fact, and a row shows as many as
+# apply. The reason text beside them stays the authority; these are for reading
+# the shape of a scan without reading it.
 #
-# There are two marks that can appear together, rather than one mark per action:
-# a row that resizes AND re-encodes shows both, side by side. Two marks the eye
-# can learn separately beat six it has to tell apart, and it means the pair reads
-# the same way whether it turns up alone or together.
+# Two of them say what is about to happen, and they compose:
 #
-#   resize    blue nested squares - the picture is redrawn smaller or larger
-#   reformat  amber square split in two - same picture, different encoding
+#   resize    blue nested squares - the picture is redrawn at another size
+#   reformat  amber split square  - same picture, different encoding
 #
-# Skip, Review and Error take a single slot of their own: a tick, a bar, a cross.
+# Skip, Review and Error replace those with a single mark of their own. The rest
+# are context - facts about the file that no column in the grid shows:
 #
-# Colours carry meaning rather than severity: blue moves pixels, amber rewrites
-# bytes, grey does nothing, orange wants a look, red failed. They are weighted
-# for a white row - an earlier, lighter set was judged on a grey sheet and all
-# but disappeared against the grid it actually sits in.
-$script:BffGlyphCache = @{}
+#   archive     slate parcel  - it lives inside a BA2, not on disk as a file
+#   tintmask    violet layers - a mask or face detail rather than a head texture
+#   facerecord  teal card     - matched from the game's own texture set records,
+#                               so it is a face texture even though nothing in
+#                               its name says so: Preston_d.dds, Mayor_s.dds
+#
+# Colours carry meaning rather than severity, and are weighted for a white row:
+# an earlier, lighter set was judged on a grey preview sheet and all but
+# disappeared against the grid it actually sits in.
+$script:BffMarkCache = @{}
 
-# One slot is 16px, and no action ever needs more than two.
-$script:BffGlyphSlot  = 16
-$script:BffGlyphWidth = 34
+# 16px a slot, packed tight the way MO2 does. Four is the most any row can show:
+# an action, a reformat, an archive, and one of tintmask/facerecord.
+$script:BffMarkSlot = 16
+$script:BffMarkGap  = 1
+$script:BffMarkMax  = 4
 
 function New-BffMark {
     <#
     .SYNOPSIS
-    One 16x16 mark. Kinds: Resize, Reformat, Skip, Review, Error.
+    One 16x16 mark. Kinds: Resize, Reformat, Skip, Review, Error, Archive,
+    TintMask, FaceRecord.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $Kind)
@@ -210,8 +217,11 @@ function New-BffMark {
     $amber  = [System.Drawing.Color]::FromArgb(255, 208, 132,  16)
     $orange = [System.Drawing.Color]::FromArgb(255, 214,  99,  20)
     $red    = [System.Drawing.Color]::FromArgb(255, 190,  54,  54)
+    $slate  = [System.Drawing.Color]::FromArgb(255,  92, 104, 120)
+    $violet = [System.Drawing.Color]::FromArgb(255, 132,  84, 178)
+    $teal   = [System.Drawing.Color]::FromArgb(255,  22, 134, 128)
 
-    $n   = $script:BffGlyphSlot
+    $n   = $script:BffMarkSlot
     $bmp = New-Object System.Drawing.Bitmap($n, $n, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g   = [System.Drawing.Graphics]::FromImage($bmp)
     try {
@@ -231,8 +241,8 @@ function New-BffMark {
             }
             'Reformat' {
                 # One square split corner to corner: same picture, encoded
-                # differently. Deliberately not a nested shape - the two marks
-                # have to be told apart by outline, not only by colour.
+                # differently. Deliberately not a nested shape - the two action
+                # marks have to be told apart by outline, not only by colour.
                 $b = New-Object System.Drawing.SolidBrush($amber)
                 $g.FillPolygon($b, [System.Drawing.Point[]] @(
                     (New-Object System.Drawing.Point(2, 2)),
@@ -268,6 +278,36 @@ function New-BffMark {
                 $g.DrawLine($pen, 12, 4, 4, 12)
                 $pen.Dispose()
             }
+            'Archive' {
+                # A parcel: a box with a band round it, so it reads as packed
+                # rather than as yet another square.
+                $pen = New-Object System.Drawing.Pen($slate, 2)
+                $pen.Alignment = 'Inset'
+                $g.DrawRectangle($pen, 1, 3, 13, 10)
+                $pen.Dispose()
+                $b = New-Object System.Drawing.SolidBrush($slate)
+                $g.FillRectangle($b, 6, 4, 3, 8)
+                $b.Dispose()
+            }
+            'TintMask' {
+                # Stacked bars: layers painted onto a face rather than the face.
+                $b = New-Object System.Drawing.SolidBrush($violet)
+                $g.FillRectangle($b, 2,  3, 12, 3)
+                $g.FillRectangle($b, 2,  8,  9, 3)
+                $g.FillRectangle($b, 2, 12,  6, 2)
+                $b.Dispose()
+            }
+            'FaceRecord' {
+                # A card with two lines: this came out of the game's own records.
+                $pen = New-Object System.Drawing.Pen($teal, 2)
+                $pen.Alignment = 'Inset'
+                $g.DrawRectangle($pen, 1, 2, 13, 12)
+                $pen.Dispose()
+                $b = New-Object System.Drawing.SolidBrush($teal)
+                $g.FillRectangle($b, 4, 6, 8, 2)
+                $g.FillRectangle($b, 4, 10, 5, 2)
+                $b.Dispose()
+            }
         }
     }
     finally { $g.Dispose() }
@@ -275,41 +315,82 @@ function New-BffMark {
     return $bmp
 }
 
-function Get-BffActionMark {
+function Get-BffMarkMeaning {
     <#
     .SYNOPSIS
-    Which marks an action shows, in order. Never more than two.
+    One line saying what a mark means, for the tooltip.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $Action)
+    param([Parameter(Mandatory)] [string] $Kind)
 
-    switch ($Action) {
-        'Resize'            { return @('Resize') }
-        'Reformat'          { return @('Reformat') }
-        'ResizeAndReformat' { return @('Resize', 'Reformat') }
-        'Review'            { return @('Review') }
-        'Error'             { return @('Error') }
-        default             { return @('Skip') }
+    switch ($Kind) {
+        'Resize'     { 'the size is wrong, so the texture is redrawn' }
+        'Reformat'   { 'the format is wrong, so the texture is re-encoded' }
+        'Skip'       { 'already matches the profile, nothing is written' }
+        'Review'     { 'left alone on purpose - look at this one yourself' }
+        'Error'      { 'this one could not be read or planned' }
+        'Archive'    { 'inside a BA2, so the fix is written out as a loose file' }
+        'TintMask'   { 'a mask or face detail, not a head texture' }
+        'FaceRecord' { 'matched from the game''s own texture set records, not by name' }
+        default      { $Kind }
     }
 }
 
-function New-BffActionGlyph {
+function Get-BffPlanMark {
     <#
     .SYNOPSIS
-    The image for one plan action: its marks laid out side by side, left aligned
-    so a single mark sits under the first of a pair. Cached, since a scan draws
-    thousands of rows and every row of the same action shares one bitmap.
+    Which marks a plan shows, in order: what happens to it first, then what it is.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $Action)
+    param([Parameter(Mandatory)] [object] $Plan)
 
-    if ($script:BffGlyphCache.ContainsKey($Action)) { return $script:BffGlyphCache[$Action] }
+    $marks = New-Object System.Collections.Generic.List[string]
 
-    $kinds = @(Get-BffActionMark -Action $Action)
-    $n     = $script:BffGlyphSlot
-    $bmp   = New-Object System.Drawing.Bitmap($script:BffGlyphWidth, $n,
-                                              [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $g     = [System.Drawing.Graphics]::FromImage($bmp)
+    switch ($Plan.Action) {
+        'Resize'            { $marks.Add('Resize') }
+        'Reformat'          { $marks.Add('Reformat') }
+        'ResizeAndReformat' { $marks.Add('Resize'); $marks.Add('Reformat') }
+        'Review'            { $marks.Add('Review') }
+        'Error'             { $marks.Add('Error') }
+        default             { $marks.Add('Skip') }
+    }
+
+    $t = $Plan.Texture
+    if ($t.Origin -eq 'BA2') { $marks.Add('Archive') }
+
+    # A file is one or the other: IsTintMask is set precisely when the match came
+    # from neither the vanilla record list nor the head name pattern.
+    if ($t.IsTintMask) { $marks.Add('TintMask') }
+    elseif ($t.MatchedBy -eq 'vanilla texture set') { $marks.Add('FaceRecord') }
+
+    return $marks.ToArray()
+}
+
+function New-BffPlanGlyph {
+    <#
+    .SYNOPSIS
+    The image for one plan: its marks packed side by side, left aligned.
+
+    .NOTES
+    Cached on the combination rather than per row. A scan draws thousands of
+    rows and there are only a couple of dozen combinations between them.
+
+    Every image is the full four slots wide even when fewer marks are drawn, so
+    a mark means the same thing in the same place down the whole column.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Plan)
+
+    $kinds = @(Get-BffPlanMark -Plan $Plan)
+    $key   = $kinds -join '+'
+    if ($script:BffMarkCache.ContainsKey($key)) { return $script:BffMarkCache[$key] }
+
+    $n     = $script:BffMarkSlot
+    $step  = $n + $script:BffMarkGap
+    $width = ($step * $script:BffMarkMax) - $script:BffMarkGap
+
+    $bmp = New-Object System.Drawing.Bitmap($width, $n, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g   = [System.Drawing.Graphics]::FromImage($bmp)
     try {
         $g.Clear([System.Drawing.Color]::Transparent)
         $x = 0
@@ -317,32 +398,13 @@ function New-BffActionGlyph {
             $mark = New-BffMark -Kind $k
             $g.DrawImage($mark, $x, 0)
             $mark.Dispose()
-            $x += $n + 2
+            $x += $step
         }
     }
     finally { $g.Dispose() }
 
-    $script:BffGlyphCache[$Action] = $bmp
+    $script:BffMarkCache[$key] = $bmp
     return $bmp
-}
-
-function Get-BffActionMeaning {
-    <#
-    .SYNOPSIS
-    One line saying what a mark means, for the tooltip on the glyph.
-    #>
-    [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $Action)
-
-    switch ($Action) {
-        'Skip'              { 'already matches the profile, nothing is written' }
-        'Resize'            { 'the size is wrong; the format is kept' }
-        'Reformat'          { 'the size is right; the format is re-encoded' }
-        'ResizeAndReformat' { 'both the size and the format are wrong' }
-        'Review'            { 'left alone on purpose - look at this one yourself' }
-        'Error'             { 'this one could not be read or planned' }
-        default             { $Action }
-    }
 }
 
 function New-BffIcon {

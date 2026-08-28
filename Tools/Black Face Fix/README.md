@@ -57,21 +57,32 @@ To undo everything: disable the `[face-...]` mods.
 
 ### Reading the table
 
-Every row carries a mark in front of its reason. There are only two to learn, and a
-row that does both shows both:
+Marks are packed into one column the way Mod Organizer's **Flags** and **Content**
+columns work: each mark is one fact, and a row shows as many as apply.
+
+Two of them say what is about to happen, and they compose - a row that is wrong in
+both ways shows both:
 
 | Mark | Meaning |
 |------|---------|
 | blue nested squares | the size is wrong, so the texture is redrawn |
 | amber split square | the format is wrong, so the texture is re-encoded |
-| both, side by side | both are wrong |
 | grey tick | already matches the profile, nothing is written |
 | orange bar | left alone on purpose - look at this one yourself |
 | red cross | could not be read or planned |
 
-Hovering a mark says what it means and why that row got it. Hovering any other cell
-shows the full source path, destination and reason, which is how you read the two
-path columns without turning them on.
+The rest are context - facts about the file that no column shows:
+
+| Mark | Meaning |
+|------|---------|
+| slate parcel | it lives inside a BA2, so the fix is written out as a loose file |
+| violet layers | a mask or face detail, not a head texture |
+| teal card | matched from the game's own texture set records rather than by name - this is `Preston_d.dds` and Piper's set, which have nothing in their names to go on |
+
+Hovering the marks lists them one per line with its own icon, the same way MO2
+explains its Content column. Hovering any other cell shows the full source path,
+destination and reason, which is how you read the two path columns without turning
+them on.
 
 ---
 

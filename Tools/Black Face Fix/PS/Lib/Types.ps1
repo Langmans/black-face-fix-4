@@ -52,6 +52,11 @@ class BffTexture {
     # True for anything under FaceDetails or TintMasks. Those are masks, not colour
     # maps, so a single-channel format can be a deliberate and better choice there.
     [bool]   $IsTintMask
+    # Which of the three recognition layers claimed this file: 'vanilla texture
+    # set', 'head name', or the folder it sits in. Worth keeping rather than
+    # discarding after the match - it is the answer to "why is this a face
+    # texture at all", which nothing else in the report says.
+    [string] $MatchedBy
 
     [string] Describe() {
         return ('{0}x{1} {2}' -f $this.Width, $this.Height, $this.Format)

@@ -279,7 +279,7 @@ function Show-BffGui {
             # Fixed width: a fill-sized image column stretches with the window and
             # leaves the mark floating in the middle of an empty gap.
             $c.AutoSizeMode = 'None'
-            $c.Width        = 40
+            $c.Width        = 74
         }
         else {
             $c            = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
@@ -291,6 +291,86 @@ function Show-BffGui {
         if ($col.ContainsKey('Hidden')) { $c.Visible = $false }
         [void] $grid.Columns.Add($c)
     }
+
+    # ------------------------------------------------------------- mark tooltip
+    # Mod Organizer's Content column lists one line per icon, each with the icon
+    # beside it. WinForms will not do that by itself: a DataGridView's own cell
+    # tooltips are plain text and cannot be owner drawn. So the Mark cells are
+    # left without ToolTipText - which keeps the built-in one quiet there - and
+    # this one is drawn by hand instead. Every other column keeps the plain
+    # built-in tooltip.
+    $markTip              = New-Object System.Windows.Forms.ToolTip
+    $markTip.OwnerDraw    = $true
+    $markTip.ShowAlways   = $true
+    $markTip.InitialDelay = 350
+    $markTip.ReshowDelay  = 80
+    $markTip.AutoPopDelay = 30000
+
+    # What the tooltip is drawing right now, and where it came from. Draw takes no
+    # arguments of its own, so the rows have to be reachable through this scope.
+    $tipRows = New-Object System.Collections.Generic.List[object]
+    $tipAt   = @{ Row = -1 }
+
+    $tipPad  = 8     # border to content
+    $tipStep = 20    # one line
+
+    $markTip.Add_Popup({
+        param($sender, $e)
+        $w = 0
+        foreach ($r in $tipRows) {
+            $size  = [System.Windows.Forms.TextRenderer]::MeasureText($r.Text, $font)
+            $lineW = $size.Width + 24 + (2 * $tipPad)
+            if ($lineW -gt $w) { $w = $lineW }
+        }
+        $e.ToolTipSize = New-Object System.Drawing.Size($w, (2 * $tipPad) + ($tipStep * $tipRows.Count))
+    })
+
+    $markTip.Add_Draw({
+        param($sender, $e)
+        $e.DrawBackground()
+        $e.DrawBorder()
+        $y = $tipPad
+        foreach ($r in $tipRows) {
+            if ($r.Image) { $e.Graphics.DrawImage($r.Image, $tipPad, $y + 2) }
+            [System.Windows.Forms.TextRenderer]::DrawText(
+                $e.Graphics, $r.Text, $font,
+                (New-Object System.Drawing.Point(($tipPad + 24), ($y + 3))),
+                [System.Drawing.SystemColors]::InfoText)
+            $y += $tipStep
+        }
+    })
+
+    $grid.Add_CellMouseEnter({
+        param($sender, $e)
+        if ($e.RowIndex -lt 0 -or $e.ColumnIndex -lt 0) { return }
+        if ($grid.Columns[$e.ColumnIndex].Name -ne 'Mark') {
+            $markTip.Hide($grid)
+            $tipAt.Row = -1
+            return
+        }
+        # Re-showing the same tooltip on every mouse move makes it flicker.
+        if ($tipAt.Row -eq $e.RowIndex) { return }
+        $tipAt.Row = $e.RowIndex
+
+        $plan = $grid.Rows[$e.RowIndex].Tag
+        if (-not $plan) { return }
+
+        $tipRows.Clear()
+        foreach ($kind in (Get-BffPlanMark -Plan $plan)) {
+            $tipRows.Add([pscustomobject]@{
+                Image = (New-BffMark -Kind $kind)
+                Text  = ('{0} - {1}' -f $kind, (Get-BffMarkMeaning -Kind $kind))
+            })
+        }
+
+        $cell = $grid.GetCellDisplayRectangle($e.ColumnIndex, $e.RowIndex, $false)
+        $markTip.Show(' ', $grid, $cell.Left, $cell.Bottom + 2, 30000)
+    })
+
+    $grid.Add_MouseLeave({
+        $markTip.Hide($grid)
+        $tipAt.Row = -1
+    })
 
     # ---------------------------------------------------------------- status bar
     $bottom         = New-Object System.Windows.Forms.Panel
@@ -390,7 +470,10 @@ function Show-BffGui {
             # painting - long after the row was added - so the window comes up and
             # only then fills with error dialogs. Assigning to the property
             # unwraps it.
-            $grid.Rows[$i].Cells['Mark'].Value = New-BffActionGlyph -Action $p.Action
+            $grid.Rows[$i].Cells['Mark'].Value = New-BffPlanGlyph -Plan $p
+
+            # The tooltip needs the plan, not the formatted row.
+            $grid.Rows[$i].Tag = $p
 
             $grid.Rows[$i].DefaultCellStyle.ForeColor = switch ($p.Action) {
                 'Skip'   { [System.Drawing.Color]::Gray }
@@ -406,11 +489,9 @@ function Show-BffGui {
                    $r.Cells['Source'].Value, $r.Cells['Destination'].Value, $r.Cells['Why'].Value
             foreach ($c in $r.Cells) { $c.ToolTipText = $tip }
 
-            # The mark carries less than the text beside it, so its own tooltip
-            # says what the shape means before repeating the reason.
-            $act = [string] $r.Cells['Action'].Value
-            $r.Cells['Mark'].ToolTipText = "{0}: {1}`n`n{2}" -f
-                $act, (Get-BffActionMeaning -Action $act), $r.Cells['Why'].Value
+            # Left empty on purpose: the marks get the owner-drawn tooltip above,
+            # and a ToolTipText here would make the built-in one fight it.
+            $r.Cells['Mark'].ToolTipText = ''
         }
 
         $grid.ResumeLayout()

@@ -5,14 +5,14 @@
 .\Tests\Run-All.ps1 -Verbose   # plus each suite's own output
 ```
 
-109 checks. Nothing touches your real mods: the suites build a throwaway MO2
+119 checks. Nothing touches your real mods: the suites build a throwaway MO2
 instance under `%TEMP%\BlackFaceFix.Tests\` with a fake `ModOrganizer.ini`,
 `modlist.txt` and a mod full of deliberately awkward textures.
 
 | Script | What it covers |
 |--------|----------------|
 | `Verify-Console.ps1` | 41 checks. Dry run, apply, and a second apply that must be a no-op. Asserts the specular goes 1024 -> 512 with 10 mips, that BC1/BC3/BC7 diffuses are kept as they are, that a BC6H diffuse is re-encoded, that `_msn` and `Face_Specular.dds` are read correctly, that non-square textures are only flagged, and that body, hair and disabled-mod textures are never scanned. A second dry run with `-VanillaFormats` covers the other format policy: every slot must come out on one format, and skin maps must still be left alone. |
-| `Verify-Gui.ps1` | 32 checks. Builds the window and runs the scan under the same `Set-StrictMode` the entry script uses, via `Show-BffGui -BuildOnly -RunScan`. This is what catches empty collections unwrapping to `$null` and variable names colliding with parameter names. It also **paints** the grid through `DrawToBitmap` with a `DataError` handler attached, because a cell can hold a value it cannot format - the failure then surfaces at paint time, long after the row was added. |
+| `Verify-Gui.ps1` | 42 checks. Builds the window and runs the scan under the same `Set-StrictMode` the entry script uses, via `Show-BffGui -BuildOnly -RunScan`. This is what catches empty collections unwrapping to `$null` and variable names colliding with parameter names. It also **paints** the grid through `DrawToBitmap` with a `DataError` handler attached, because a cell can hold a value it cannot format - the failure then surfaces at paint time, long after the row was added. |
 | `Verify-Ba2.ps1` | 35 checks. Reads real BA2 archives: header and record layout for versions 1, 7 and 8, the size and format in DX10 file tables, and extraction of zlib-compressed entries. |
 
 Both take `-Tool <path>` if you want to test a copy somewhere else.

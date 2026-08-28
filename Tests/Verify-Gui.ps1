@@ -137,24 +137,65 @@ if ($handles) {
         Check 'tooltip carries from/to and why' ($tip -match 'from:' -and $tip -match 'to:') $tip
     }
 
-    # A mark per row in front of the reason, with its own tooltip saying what the
-    # shape means. An image column that never gets a value renders as an empty
-    # gap, which looks like a layout bug rather than a missing value.
-    # Two marks that compose, not one picture per action: a row that resizes and
-    # re-encodes shows both, and nothing shows more than two.
+    # Marks are packed into one column the way MO2 does it: each is one fact, and
+    # a row shows as many as apply. Two of them say what happens to the file and
+    # compose; the rest are context.
+    function Plan-For {
+        param([string] $Action, [string] $Origin = 'Loose', [bool] $Tint = $false, [string] $MatchedBy = 'head name')
+        $t = [BffTexture]::new()
+        $t.Origin = $Origin; $t.IsTintMask = $Tint; $t.MatchedBy = $MatchedBy
+        $p = [BffPlan]::new()
+        $p.Texture = $t; $p.Action = $Action
+        return $p
+    }
+
     $allActions = @('Skip', 'Resize', 'Reformat', 'ResizeAndReformat', 'Review', 'Error')
-    $tooMany = @($allActions | Where-Object { @(Get-BffActionMark -Action $_).Count -gt 2 })
-    Check 'never more than two marks' ($tooMany.Count -eq 0) ($tooMany -join ', ')
+
     Check 'both changes show both marks' `
-        ((@(Get-BffActionMark -Action 'ResizeAndReformat') -join ',') -eq 'Resize,Reformat') `
-        ((Get-BffActionMark -Action 'ResizeAndReformat') -join ',')
-    $single = @($allActions | Where-Object { $_ -ne 'ResizeAndReformat' -and @(Get-BffActionMark -Action $_).Count -ne 1 })
-    Check 'every other action shows one' ($single.Count -eq 0) ($single -join ', ')
+        ((@(Get-BffPlanMark -Plan (Plan-For 'ResizeAndReformat')) -join ',') -eq 'Resize,Reformat') `
+        ((Get-BffPlanMark -Plan (Plan-For 'ResizeAndReformat')) -join ',')
+
+    $notOne = @($allActions | Where-Object {
+        $_ -ne 'ResizeAndReformat' -and @(Get-BffPlanMark -Plan (Plan-For $_)).Count -ne 1
+    })
+    Check 'every other action shows one action mark' ($notOne.Count -eq 0) ($notOne -join ', ')
+
+    # Context marks come from the texture, not the action.
+    Check 'a BA2 texture gets the archive mark' `
+        ((@(Get-BffPlanMark -Plan (Plan-For 'Resize' 'BA2')) -join ',') -eq 'Resize,Archive') `
+        ((Get-BffPlanMark -Plan (Plan-For 'Resize' 'BA2')) -join ',')
+    Check 'a tint mask gets the tintmask mark' `
+        ((@(Get-BffPlanMark -Plan (Plan-For 'Skip' 'Loose' $true)) -join ',') -eq 'Skip,TintMask') `
+        ((Get-BffPlanMark -Plan (Plan-For 'Skip' 'Loose' $true)) -join ',')
+    Check 'a record match gets the facerecord mark' `
+        ((@(Get-BffPlanMark -Plan (Plan-For 'Skip' 'Loose' $false 'vanilla texture set')) -join ',') -eq 'Skip,FaceRecord') `
+        ((Get-BffPlanMark -Plan (Plan-For 'Skip' 'Loose' $false 'vanilla texture set')) -join ',')
+    Check 'a plain head-name match gets no context mark' `
+        ((@(Get-BffPlanMark -Plan (Plan-For 'Skip')) -join ',') -eq 'Skip') `
+        ((Get-BffPlanMark -Plan (Plan-For 'Skip')) -join ',')
+
+    # The image is sized for the worst case, so a mark means the same thing in the
+    # same place all the way down the column.
+    $worst = Plan-For 'ResizeAndReformat' 'BA2' $true
+    Check 'the busiest row still fits the image' `
+        (@(Get-BffPlanMark -Plan $worst).Count -le 4) `
+        ((Get-BffPlanMark -Plan $worst) -join ',')
+    $wide = New-BffPlanGlyph -Plan $worst
+    $thin = New-BffPlanGlyph -Plan (Plan-For 'Skip')
+    Check 'every glyph is the same width' ($wide.Width -eq $thin.Width) `
+        ("{0} vs {1}" -f $wide.Width, $thin.Width)
+
+    # Every mark has to say what it means, or the tooltip shows a bare name.
+    $unnamed = @('Resize', 'Reformat', 'Skip', 'Review', 'Error', 'Archive', 'TintMask', 'FaceRecord' |
+                 Where-Object { (Get-BffMarkMeaning -Kind $_) -eq $_ })
+    Check 'every mark has a meaning' ($unnamed.Count -eq 0) ($unnamed -join ', ')
 
     $mark = $handles.Grid.Columns['Mark']
     Check 'Mark column exists' ($null -ne $mark)
     if ($mark) {
         Check 'Mark column holds images' ($mark -is [System.Windows.Forms.DataGridViewImageColumn]) $mark.GetType().Name
+        Check 'Mark column is wide enough' ($mark.Width -ge $wide.Width) `
+            ("column {0}, image {1}" -f $mark.Width, $wide.Width)
 
         if ($handles.Grid.Rows.Count -gt 0) {
             $missing = @($handles.Grid.Rows | Where-Object { $null -eq $_.Cells['Mark'].Value })
@@ -176,12 +217,15 @@ if ($handles) {
             Check 'grid paints without cell errors' ($dataErrors.Count -eq 0) `
                 (($dataErrors | Select-Object -First 1) -join '')
 
-            $row      = $handles.Grid.Rows[0]
-            $markTip  = $row.Cells['Mark'].ToolTipText
-            $action   = [string] $row.Cells['Action'].Value
-            Check 'glyph tooltip names the action' ($markTip -like ($action + ':*')) $markTip
-            Check 'glyph tooltip explains the action' `
-                ($markTip -match [regex]::Escape((Get-BffActionMeaning -Action $action))) $markTip
+            # The owner-drawn tooltip reads the plan off the row, so a row without
+            # one would show an empty popup.
+            $tagless = @($handles.Grid.Rows | Where-Object { $null -eq $_.Tag })
+            Check 'every row carries its plan' ($tagless.Count -eq 0) ("{0} rows without one" -f $tagless.Count)
+
+            # And the built-in tooltip has to stay quiet on that cell, or the two
+            # of them fight over the same hover.
+            $noisy = @($handles.Grid.Rows | Where-Object { $_.Cells['Mark'].ToolTipText -ne '' })
+            Check 'built-in tooltip is off for marks' ($noisy.Count -eq 0) ("{0} rows with one" -f $noisy.Count)
         }
     }
 
