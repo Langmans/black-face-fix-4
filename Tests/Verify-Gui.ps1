@@ -149,6 +149,22 @@ if ($handles) {
             $missing = @($handles.Grid.Rows | Where-Object { $null -eq $_.Cells['Mark'].Value })
             Check 'every row has a glyph' ($missing.Count -eq 0) ("{0} rows without one" -f $missing.Count)
 
+            # Checking the value is not null is not enough, and this is why: a
+            # glyph handed to Rows.Add inside an array arrives wrapped in a
+            # PSObject. The cell holds it happily, and the column only fails when
+            # it tries to format it - which is at paint time, so the window opens
+            # and only then buries itself in error dialogs. Painting the grid here
+            # is what makes the test see what the user sees.
+            $painted = New-Object System.Drawing.Bitmap($handles.Grid.Width, $handles.Grid.Height)
+            $dataErrors = New-Object System.Collections.ArrayList
+            $handler = { param($s, $e) [void] $dataErrors.Add($e.Exception.Message) }
+            $handles.Grid.Add_DataError($handler)
+            try { $handles.Grid.DrawToBitmap($painted, (New-Object System.Drawing.Rectangle(0, 0, $painted.Width, $painted.Height))) }
+            finally { $handles.Grid.Remove_DataError($handler); $painted.Dispose() }
+
+            Check 'grid paints without cell errors' ($dataErrors.Count -eq 0) `
+                (($dataErrors | Select-Object -First 1) -join '')
+
             $row      = $handles.Grid.Rows[0]
             $markTip  = $row.Cells['Mark'].ToolTipText
             $action   = [string] $row.Cells['Action'].Value

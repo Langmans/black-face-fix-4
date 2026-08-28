@@ -248,6 +248,17 @@ function Show-BffGui {
     $form.Controls.Add($grid)
     $grid.BringToFront()
 
+    # Without a handler here, a cell that cannot format its value pops a modal
+    # dialog - and it does so per repaint, so the window ends up buried under
+    # them. Handling the event suppresses the dialog; the failure goes to the log
+    # instead, where it can be read after the fact.
+    $grid.Add_DataError({
+        param($sender, $e)
+        $e.ThrowException = $false
+        Write-BffLine ("A cell could not be displayed (row {0}, column {1}): {2}" -f
+                       $e.RowIndex, $e.ColumnIndex, $e.Exception.Message) 'Yellow'
+    })
+
     foreach ($col in @(
         @{ N = 'Mod';    W = 16 }, @{ N = 'File';   W = 18 }, @{ N = 'Slot';   W = 8 },
         @{ N = 'Now';    W = 15 }, @{ N = 'Target'; W = 15 }, @{ N = 'Action'; W = 10 },
@@ -370,8 +381,16 @@ function Show-BffGui {
             $i = $grid.Rows.Add(@(
                 $p.Texture.ModName, $p.Texture.Name, $p.Texture.Slot,
                 $p.Texture.Describe(), $p.Describe(), $p.Action,
-                (New-BffActionGlyph -Action $p.Action), $p.Reason,
+                $null, $p.Reason,
                 $source, $p.Destination))
+
+            # Assigned to the cell rather than passed in the array above: a value
+            # going through a PowerShell array arrives wrapped in a PSObject, and
+            # the image column cannot convert that to an Image. It throws while
+            # painting - long after the row was added - so the window comes up and
+            # only then fills with error dialogs. Assigning to the property
+            # unwraps it.
+            $grid.Rows[$i].Cells['Mark'].Value = New-BffActionGlyph -Action $p.Action
 
             $grid.Rows[$i].DefaultCellStyle.ForeColor = switch ($p.Action) {
                 'Skip'   { [System.Drawing.Color]::Gray }
