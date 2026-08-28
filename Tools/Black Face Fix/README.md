@@ -48,7 +48,7 @@ Do not run it as administrator. It does not need it.
 
 1. Run `Launcher-GUI.bat` (window) or `Launcher.bat` (console).
 2. Press **Scan**. Nothing is written yet - you get a table of every texture with its
-   current size, its current format, the target, and the reason.
+   current size, its current format and the target. Hovering a row says why.
 3. Press **Apply** if the plan looks right.
 4. In Mod Organizer press **F5**, tick each new `[face-...]` mod, and drag each one
    directly below the mod it was made from.
@@ -57,8 +57,15 @@ To undo everything: disable the `[face-...]` mods.
 
 ### Reading the table
 
-Marks are packed into one column the way Mod Organizer's **Flags** and **Content**
-columns work: each mark is one fact, and a row shows as many as apply.
+There is no column of reason text. As one it was unreadable: every row opened with
+the same words, the column width cut them off at the same place, and the part that
+actually differed was the part that got cut.
+
+Instead there is a column of marks, packed the way Mod Organizer's **Flags** and
+**Content** columns are: each mark is one fact, and a row shows as many as apply.
+Hovering the row opens one tooltip with a line per mark - the mark is the bullet,
+and the sentence beside it is that mark's share of the reason, followed by the
+source and destination paths.
 
 Two of them say what is about to happen, and they compose - a row that is wrong in
 both ways shows both:
@@ -79,10 +86,8 @@ The rest are context - facts about the file that no column shows:
 | violet layers | a mask or face detail, not a head texture |
 | teal card | matched from the game's own texture set records rather than by name - this is `Preston_d.dds` and Piper's set, which have nothing in their names to go on |
 
-Hovering the marks lists them one per line with its own icon, the same way MO2
-explains its Content column. Hovering any other cell shows the full source path,
-destination and reason, which is how you read the two path columns without turning
-them on.
+The full reason is still written per file to the CSV in `Logs\`, where it is one
+sentence per row and can be sorted and filtered.
 
 ---
 

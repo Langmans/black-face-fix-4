@@ -262,10 +262,11 @@ function Show-BffGui {
     foreach ($col in @(
         @{ N = 'Mod';    W = 16 }, @{ N = 'File';   W = 18 }, @{ N = 'Slot';   W = 8 },
         @{ N = 'Now';    W = 15 }, @{ N = 'Target'; W = 15 }, @{ N = 'Action'; W = 10 },
-        # A mark per action in front of the reason, so the shape of a scan reads at
-        # a glance. The reason text next to it stays the authority.
+        # The marks replace a column of reason text. As a column it was unreadable:
+        # every row opened with the same words, the width cut them off at the same
+        # place, and the part that actually differed was the part that got cut. The
+        # marks say the same thing in a glance, and hovering the row spells it out.
         @{ N = 'Mark';   W = 3;  Image = $true },
-        @{ N = 'Why';    W = 45 },
         # Hidden until "Show full paths" is ticked: useful for checking exactly
         # which file is read and where the result lands, far too wide to always show.
         @{ N = 'Source'; W = 40; Hidden = $true }, @{ N = 'Destination'; W = 40; Hidden = $true })) {
@@ -292,63 +293,81 @@ function Show-BffGui {
         [void] $grid.Columns.Add($c)
     }
 
-    # ------------------------------------------------------------- mark tooltip
-    # Mod Organizer's Content column lists one line per icon, each with the icon
-    # beside it. WinForms will not do that by itself: a DataGridView's own cell
-    # tooltips are plain text and cannot be owner drawn. So the Mark cells are
-    # left without ToolTipText - which keeps the built-in one quiet there - and
-    # this one is drawn by hand instead. Every other column keeps the plain
-    # built-in tooltip.
-    $markTip              = New-Object System.Windows.Forms.ToolTip
-    $markTip.OwnerDraw    = $true
-    $markTip.ShowAlways   = $true
-    $markTip.InitialDelay = 350
-    $markTip.ReshowDelay  = 80
-    $markTip.AutoPopDelay = 30000
+    # -------------------------------------------------------------- row tooltip
+    # One tooltip for the whole row, laid out the way Mod Organizer explains its
+    # Content column: a line per mark, with the mark itself as the bullet. This is
+    # where the reason text lives - it is too long for a column and too useful to
+    # drop.
+    #
+    # WinForms will not do this by itself. A DataGridView's own cell tooltips are
+    # plain text and cannot be owner drawn, so they are switched off entirely and
+    # this one is drawn by hand.
+    $grid.ShowCellToolTips = $false
 
-    # What the tooltip is drawing right now, and where it came from. Draw takes no
-    # arguments of its own, so the rows have to be reachable through this scope.
+    $rowTip              = New-Object System.Windows.Forms.ToolTip
+    $rowTip.OwnerDraw    = $true
+    $rowTip.ShowAlways   = $true
+    $rowTip.InitialDelay = 350
+    $rowTip.ReshowDelay  = 80
+    $rowTip.AutoPopDelay = 30000
+
+    # What the tooltip is drawing right now, and which row it came from. Draw takes
+    # no arguments of its own, so this has to be reachable through this scope.
     $tipRows = New-Object System.Collections.Generic.List[object]
     $tipAt   = @{ Row = -1 }
 
-    $tipPad  = 8     # border to content
-    $tipStep = 20    # one line
+    $tipPad    = 8     # border to content
+    $tipBullet = 24    # mark column inside the tooltip
+    $tipMaxW   = 560   # wrap rather than run off the screen
 
-    $markTip.Add_Popup({
-        param($sender, $e)
-        $w = 0
+    # Measured in Popup, reused in Draw: laying the text out twice risks the two
+    # disagreeing and the last line being clipped.
+    $tipLayout = @{ Width = 0; Height = 0 }
+
+    $measureTip = {
+        $textW = $tipMaxW - $tipBullet - (2 * $tipPad)
+        $wide   = 0
+        $high   = 2 * $tipPad
         foreach ($r in $tipRows) {
-            $size  = [System.Windows.Forms.TextRenderer]::MeasureText($r.Text, $font)
-            $lineW = $size.Width + 24 + (2 * $tipPad)
-            if ($lineW -gt $w) { $w = $lineW }
+            $size = [System.Windows.Forms.TextRenderer]::MeasureText(
+                        $r.Text, $font,
+                        (New-Object System.Drawing.Size($textW, 0)),
+                        [System.Windows.Forms.TextFormatFlags]::WordBreak)
+            $r | Add-Member -NotePropertyName Height -NotePropertyValue ([Math]::Max($size.Height, 18)) -Force
+            if ($size.Width -gt $wide) { $wide = $size.Width }
+            $high += $r.Height + 4
         }
-        $e.ToolTipSize = New-Object System.Drawing.Size($w, (2 * $tipPad) + ($tipStep * $tipRows.Count))
+        $tipLayout.Width  = $wide + $tipBullet + (2 * $tipPad)
+        $tipLayout.Height = $high
+    }
+
+    $rowTip.Add_Popup({
+        param($sender, $e)
+        $e.ToolTipSize = New-Object System.Drawing.Size($tipLayout.Width, $tipLayout.Height)
     })
 
-    $markTip.Add_Draw({
+    $rowTip.Add_Draw({
         param($sender, $e)
         $e.DrawBackground()
         $e.DrawBorder()
+        $textW = $e.Bounds.Width - $tipBullet - (2 * $tipPad)
         $y = $tipPad
         foreach ($r in $tipRows) {
-            if ($r.Image) { $e.Graphics.DrawImage($r.Image, $tipPad, $y + 2) }
+            if ($r.Image) { $e.Graphics.DrawImage($r.Image, $tipPad, $y + 1) }
             [System.Windows.Forms.TextRenderer]::DrawText(
                 $e.Graphics, $r.Text, $font,
-                (New-Object System.Drawing.Point(($tipPad + 24), ($y + 3))),
-                [System.Drawing.SystemColors]::InfoText)
-            $y += $tipStep
+                (New-Object System.Drawing.Rectangle(($tipPad + $tipBullet), $y, $textW, $r.Height)),
+                [System.Drawing.SystemColors]::InfoText,
+                [System.Windows.Forms.TextFormatFlags]::WordBreak)
+            $y += $r.Height + 4
         }
     })
 
+    # Any cell in the row, not just the mark: the tooltip is about the row.
     $grid.Add_CellMouseEnter({
         param($sender, $e)
-        if ($e.RowIndex -lt 0 -or $e.ColumnIndex -lt 0) { return }
-        if ($grid.Columns[$e.ColumnIndex].Name -ne 'Mark') {
-            $markTip.Hide($grid)
-            $tipAt.Row = -1
-            return
-        }
-        # Re-showing the same tooltip on every mouse move makes it flicker.
+        if ($e.RowIndex -lt 0) { return }
+        # Re-showing the same tooltip as the mouse crosses cells makes it flicker.
         if ($tipAt.Row -eq $e.RowIndex) { return }
         $tipAt.Row = $e.RowIndex
 
@@ -356,19 +375,28 @@ function Show-BffGui {
         if (-not $plan) { return }
 
         $tipRows.Clear()
-        foreach ($kind in (Get-BffPlanMark -Plan $plan)) {
+        foreach ($line in (Get-BffPlanTipLine -Plan $plan)) {
             $tipRows.Add([pscustomobject]@{
-                Image = (New-BffMark -Kind $kind)
-                Text  = ('{0} - {1}' -f $kind, (Get-BffMarkMeaning -Kind $kind))
+                Image = (New-BffMark -Kind $line.Kind)
+                Text  = $line.Text
             })
         }
 
+        # Where it came from and where it is going, which the two path columns
+        # otherwise only show when they are turned on.
+        $tipRows.Add([pscustomobject]@{ Image = $null; Text = ('from:  ' + $grid.Rows[$e.RowIndex].Cells['Source'].Value) })
+        if ($grid.Rows[$e.RowIndex].Cells['Destination'].Value) {
+            $tipRows.Add([pscustomobject]@{ Image = $null; Text = ('to:    ' + $grid.Rows[$e.RowIndex].Cells['Destination'].Value) })
+        }
+
+        & $measureTip
+
         $cell = $grid.GetCellDisplayRectangle($e.ColumnIndex, $e.RowIndex, $false)
-        $markTip.Show(' ', $grid, $cell.Left, $cell.Bottom + 2, 30000)
+        $rowTip.Show(' ', $grid, $cell.Left, $cell.Bottom + 2, 30000)
     })
 
     $grid.Add_MouseLeave({
-        $markTip.Hide($grid)
+        $rowTip.Hide($grid)
         $tipAt.Row = -1
     })
 
@@ -461,7 +489,7 @@ function Show-BffGui {
             $i = $grid.Rows.Add(@(
                 $p.Texture.ModName, $p.Texture.Name, $p.Texture.Slot,
                 $p.Texture.Describe(), $p.Describe(), $p.Action,
-                $null, $p.Reason,
+                $null,
                 $source, $p.Destination))
 
             # Assigned to the cell rather than passed in the array above: a value
@@ -481,17 +509,6 @@ function Show-BffGui {
                 'Error'  { [System.Drawing.Color]::Firebrick }
                 default  { [System.Drawing.Color]::FromArgb(0, 70, 140) }
             }
-        }
-        # The Why column is wider than any sensible window and the paths are
-        # hidden by default, so hovering any cell shows all of it.
-        foreach ($r in $grid.Rows) {
-            $tip = "from: {0}`nto:   {1}`n`n{2}" -f
-                   $r.Cells['Source'].Value, $r.Cells['Destination'].Value, $r.Cells['Why'].Value
-            foreach ($c in $r.Cells) { $c.ToolTipText = $tip }
-
-            # Left empty on purpose: the marks get the owner-drawn tooltip above,
-            # and a ToolTipText here would make the built-in one fight it.
-            $r.Cells['Mark'].ToolTipText = ''
         }
 
         $grid.ResumeLayout()

@@ -132,9 +132,29 @@ if ($handles) {
     Check 'path columns start hidden' (-not $handles.Grid.Columns['Source'].Visible -and
                                        -not $handles.Grid.Columns['Destination'].Visible)
 
+    # The reason is not a column any more - it is the tooltip, one line per mark
+    # with the mark as its bullet. As a column every row opened with the same words
+    # and the width cut off the part that differed.
+    Check 'no Why column' ($null -eq $handles.Grid.Columns['Why'])
+    Check 'built-in cell tooltips are off' (-not $handles.Grid.ShowCellToolTips)
+
     if ($handles.Grid.Rows.Count -gt 0) {
-        $tip = $handles.Grid.Rows[0].Cells[0].ToolTipText
-        Check 'tooltip carries from/to and why' ($tip -match 'from:' -and $tip -match 'to:') $tip
+        $plan  = $handles.Grid.Rows[0].Tag
+        $lines = @(Get-BffPlanTipLine -Plan $plan)
+
+        Check 'tooltip has a line per mark' `
+            ($lines.Count -eq @(Get-BffPlanMark -Plan $plan).Count) `
+            ("{0} lines, {1} marks" -f $lines.Count, @(Get-BffPlanMark -Plan $plan).Count)
+
+        $empty = @($lines | Where-Object { -not $_.Text })
+        Check 'every tooltip line says something' ($empty.Count -eq 0) `
+            (($empty | ForEach-Object { $_.Kind }) -join ', ')
+
+        # A line must not be the bare mark name: that would mean the fallback fired
+        # where a real sentence was expected.
+        $bare = @($lines | Where-Object { $_.Text -eq $_.Kind })
+        Check 'no tooltip line is just the mark name' ($bare.Count -eq 0) `
+            (($bare | ForEach-Object { $_.Kind }) -join ', ')
     }
 
     # Marks are packed into one column the way MO2 does it: each is one fact, and
@@ -189,6 +209,26 @@ if ($handles) {
     $unnamed = @('Resize', 'Reformat', 'Skip', 'Review', 'Error', 'Archive', 'TintMask', 'FaceRecord' |
                  Where-Object { (Get-BffMarkMeaning -Kind $_) -eq $_ })
     Check 'every mark has a meaning' ($unnamed.Count -eq 0) ($unnamed -join ', ')
+
+    # Each half of the reason has to land on the mark it is about, or the tooltip
+    # says the same thing twice and the useful half goes missing.
+    $split = Plan-For 'ResizeAndReformat'
+    $split.SizeReason   = 'THE SIZE HALF'
+    $split.FormatReason = 'THE FORMAT HALF'
+    $splitLines = @(Get-BffPlanTipLine -Plan $split)
+    Check 'the resize line carries the size reason' `
+        (($splitLines | Where-Object Kind -eq 'Resize').Text -eq 'THE SIZE HALF') `
+        (($splitLines | Where-Object Kind -eq 'Resize').Text)
+    Check 'the reformat line carries the format reason' `
+        (($splitLines | Where-Object Kind -eq 'Reformat').Text -eq 'THE FORMAT HALF') `
+        (($splitLines | Where-Object Kind -eq 'Reformat').Text)
+
+    # A row that is only reported, not changed, has one mark and the whole reason.
+    $reviewed = Plan-For 'Review'
+    $reviewed.Reason = 'THE WHOLE STORY'
+    Check 'a Review row shows its reason' `
+        ((@(Get-BffPlanTipLine -Plan $reviewed)[0]).Text -eq 'THE WHOLE STORY') `
+        ((@(Get-BffPlanTipLine -Plan $reviewed)[0]).Text)
 
     $mark = $handles.Grid.Columns['Mark']
     Check 'Mark column exists' ($null -ne $mark)

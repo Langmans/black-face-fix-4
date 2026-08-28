@@ -366,6 +366,51 @@ function Get-BffPlanMark {
     return $marks.ToArray()
 }
 
+function Get-BffPlanTipLine {
+    <#
+    .SYNOPSIS
+    The tooltip for one row: a mark and the sentence that mark is about, in order.
+
+    .NOTES
+    This is where the reason text lives now. It used to be a column, which meant
+    every row showed the same opening words truncated to the same width and the
+    part that differed was the part cut off. Split across the marks it is one
+    short line each, and the mark is its bullet.
+
+    A mark with nothing specific to say about this row falls back to what the
+    mark means in general.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Plan)
+
+    $lines = New-Object System.Collections.Generic.List[object]
+
+    foreach ($kind in (Get-BffPlanMark -Plan $Plan)) {
+        $text = switch ($kind) {
+            'Resize'   { $Plan.SizeReason }
+            'Reformat' { $Plan.FormatReason }
+            'Archive'  {
+                if ($Plan.Texture.ArchivePath) {
+                    'inside {0}, so the fix is written out as a loose file' -f
+                        [IO.Path]::GetFileName($Plan.Texture.ArchivePath)
+                }
+                else { '' }
+            }
+            # Skip, Review and Error each stand for the whole row, so they carry
+            # the whole reason.
+            'Skip'     { $Plan.Reason }
+            'Review'   { $Plan.Reason }
+            'Error'    { $Plan.Reason }
+            default    { '' }
+        }
+
+        if (-not $text) { $text = Get-BffMarkMeaning -Kind $kind }
+        $lines.Add([pscustomobject]@{ Kind = $kind; Text = $text })
+    }
+
+    return $lines.ToArray()
+}
+
 function New-BffPlanGlyph {
     <#
     .SYNOPSIS

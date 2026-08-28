@@ -79,7 +79,13 @@ class BffPlan {
     # Review            - tripped a safety rail (not square / too small); reported, not touched
     # Error             - could not be read
     [string]     $Action
+    # The whole story in one line, for the console and the CSV.
     [string]     $Reason
+    # The same story in the two pieces it is made of, so the window can put each
+    # piece next to the mark it belongs to instead of showing one long string.
+    # Both are always set: when nothing is wrong they say so.
+    [string]     $SizeReason
+    [string]     $FormatReason
     [string]     $Destination
     [string]     $Error
 

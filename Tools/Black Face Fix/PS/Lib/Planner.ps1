@@ -144,6 +144,18 @@ function New-BffPlan {
                          $Texture.Format, $Texture.Slot.ToLower(), $allowed, $rule.DefaultFormat)
     }
 
+    # Kept as two pieces as well as one line. The window puts each piece beside the
+    # mark it belongs to; the console and the CSV want the sentence.
+    $plan.SizeReason = if ($sizeReason) { $sizeReason }
+                       elseif (-not $rule.EnforceSize) {
+                           ("{0}x{1} is left as it is - {2} maps take no part in the head/tint matching" -f
+                            $Texture.Width, $Texture.Height, $Texture.Slot.ToLower())
+                       }
+                       else { ("size {0}x{1} already matches profile '{2}'" -f $Texture.Width, $Texture.Height, $Profile.Name) }
+
+    $plan.FormatReason = if ($formatReason) { $formatReason }
+                         else { ("{0} is valid for a {1} map and is kept" -f $Texture.Format, $Texture.Slot.ToLower()) }
+
     if ($plan.SizeOk -and $plan.FormatOk -and -not $Force) {
         $plan.Action = 'Skip'
         $plan.Reason = if (-not $rule.EnforceSize) {
