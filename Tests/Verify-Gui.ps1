@@ -125,12 +125,50 @@ if ($handles) {
             ($shownName -like ($pl.Texture.ModName + '*')) $shownName
     }
 
-    # Full source and destination paths are available but off by default: handy for
-    # checking exactly what is read and where it lands, far too wide to always show.
-    Check 'Source column exists'      ($null -ne $handles.Grid.Columns['Source'])
-    Check 'Destination column exists' ($null -ne $handles.Grid.Columns['Destination'])
-    Check 'path columns start hidden' (-not $handles.Grid.Columns['Source'].Visible -and
-                                       -not $handles.Grid.Columns['Destination'].Visible)
+    # Three things repeat on every row and none earn their width: the MO2 install
+    # path, the mod folder (its own column) and 'textures\actors\character\' (the
+    # definition of what is scanned). The Folder column is what is left.
+    Check 'Folder column exists' ($null -ne $handles.Grid.Columns['Folder'])
+
+    if ($changing.Count -gt 0) {
+        $pl    = $changing[0]
+        $short = Get-BffRowFolder -Plan $pl
+        $full  = Get-BffRowFolder -Plan $pl -Full
+
+        Check 'the folder column drops the drive' ($short -notmatch '(?i)^[a-z]:\\') $short
+        Check 'the folder column drops the texture root' `
+            ($short -notmatch '(?i)actors.character') $short
+        Check 'the folder column drops the mod name' `
+            ($short -notlike ('*' + $pl.Texture.ModName + '*')) $short
+        # The File column already carries the name, so repeating it here would be
+        # the widest thing in the column for no gain.
+        Check 'the folder column drops the file name' `
+            ($short -notlike ('*' + $pl.Texture.Name)) $short
+        Check 'the folder column is much shorter' `
+            ($short.Length -lt ($full.Length / 2)) ("{0} vs {1}" -f $short.Length, $full.Length)
+        Check 'full paths are still available' ($full -match '(?i)^[a-z]:\\') $full
+    }
+
+    # CellMouseEnter is not only raised by a mouse. WinForms raises it from its own
+    # layout code - creating the handle calls AdjustFillingColumns, which calls
+    # UpdateMouseEnteredCell - and at that point Show-BffGui is not on the stack,
+    # so a handler reading that function's variables finds nothing and dies inside
+    # a window that has not finished opening. Raising it here, after Show-BffGui has
+    # returned, is exactly that situation.
+    $onEnter = [System.Windows.Forms.DataGridView].GetMethod(
+                   'OnCellMouseEnter', [System.Reflection.BindingFlags] 'NonPublic,Instance')
+    # A typed array, not @($ev): a PowerShell array hands reflection a PSObject and
+    # the parameter will not bind.
+    $enterArgs = [object[]]::new(1)
+    $enterArgs[0] = (New-Object System.Windows.Forms.DataGridViewCellEventArgs(0, 0)).PSObject.BaseObject
+    $enterError = ''
+    try { $onEnter.Invoke($handles.Grid, $enterArgs) }
+    catch {
+        $inner = $_.Exception
+        while ($inner.InnerException) { $inner = $inner.InnerException }
+        $enterError = $inner.Message
+    }
+    Check 'the row tooltip survives being raised from layout' ($enterError -eq '') $enterError
 
     # Rows must not be draggable. The property is the behaviour here - it is the
     # switch WinForms checks before it starts a drag - and it defaults to on, so a

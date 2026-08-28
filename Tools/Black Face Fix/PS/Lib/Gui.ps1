@@ -11,6 +11,47 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+function Get-BffRowFolder {
+    <#
+    .SYNOPSIS
+    What the Folder column shows: where under the face textures this one sits.
+
+    .NOTES
+    Three things are the same on every single row and none of them are worth the
+    width: the MO2 install path, the mod folder - which has its own column - and
+    'textures\actors\character\', which is the definition of what this tool scans.
+    Strip all three and what is left is the part that differs: 'Character Assets\
+    FaceDetails', 'BaseHumanMale', 'FaceCustomization\Fallout4.esm'.
+
+    The file name is dropped too, because the File column already has it.
+
+    BA2 entries keep the archive name in front: which archive a texture came out of
+    is not visible anywhere else.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [BffPlan] $Plan,
+        [switch] $Full
+    )
+
+    if ($Full) {
+        if ($Plan.Texture.Origin -eq 'BA2') {
+            return ('{0} -> {1}' -f $Plan.Texture.ArchivePath, $Plan.Texture.FullName)
+        }
+        return $Plan.Texture.FullName
+    }
+
+    $rel = if ($Plan.Texture.RelativePath) { $Plan.Texture.RelativePath } else { $Plan.Texture.FullName }
+    $dir = Split-Path -Parent $rel
+    $dir = $dir -replace '(?i)^textures\\actors\\character\\?', ''
+    if (-not $dir) { $dir = '\' }
+
+    if ($Plan.Texture.Origin -eq 'BA2') {
+        return ('{0} -> {1}' -f (Split-Path -Leaf $Plan.Texture.ArchivePath), $dir)
+    }
+    return $dir
+}
+
 function Show-BffGui {
     [CmdletBinding()]
     param(
@@ -276,9 +317,15 @@ function Show-BffGui {
         # place, and the part that actually differed was the part that got cut. The
         # marks say the same thing in a glance, and hovering the row spells it out.
         @{ N = 'Mark';   W = 3;  Image = $true },
-        # Hidden until "Show full paths" is ticked: useful for checking exactly
-        # which file is read and where the result lands, far too wide to always show.
-        @{ N = 'Source'; W = 40; Hidden = $true }, @{ N = 'Destination'; W = 40; Hidden = $true })) {
+        # Where under the face textures this one sits - not the absolute path,
+        # which is the same fifty characters on every row and pushes the part that
+        # differs off the right edge. "Show full paths" swaps it back to the
+        # absolute one; the row tooltip carries that either way.
+        #
+        # There is no column for where the result lands: the output mod is the Mod
+        # column plus the profile, so a column of it would repeat two others. The
+        # tooltip's "to:" line has the real path.
+        @{ N = 'Folder'; W = 26 })) {
 
         if ($col.ContainsKey('Image')) {
             $c              = New-Object System.Windows.Forms.DataGridViewImageColumn
@@ -320,93 +367,115 @@ function Show-BffGui {
     $rowTip.ReshowDelay  = 80
     $rowTip.AutoPopDelay = 30000
 
-    # What the tooltip is drawing right now, and which row it came from. Draw takes
-    # no arguments of its own, so this has to be reachable through this scope.
-    $tipRows = New-Object System.Collections.Generic.List[object]
-    $tipAt   = @{ Row = -1 }
-
-    $tipPad    = 8     # border to content
-    $tipBullet = 24    # mark column inside the tooltip
-    $tipMaxW   = 560   # wrap rather than run off the screen
-
-    # Measured in Popup, reused in Draw: laying the text out twice risks the two
-    # disagreeing and the last line being clipped.
-    $tipLayout = @{ Width = 0; Height = 0 }
-
-    $measureTip = {
-        $textW = $tipMaxW - $tipBullet - (2 * $tipPad)
-        $wide   = 0
-        $high   = 2 * $tipPad
-        foreach ($r in $tipRows) {
-            $size = [System.Windows.Forms.TextRenderer]::MeasureText(
-                        $r.Text, $font,
-                        (New-Object System.Drawing.Size($textW, 0)),
-                        [System.Windows.Forms.TextFormatFlags]::WordBreak)
-            $r | Add-Member -NotePropertyName Height -NotePropertyValue ([Math]::Max($size.Height, 18)) -Force
-            if ($size.Width -gt $wide) { $wide = $size.Width }
-            $high += $r.Height + 4
-        }
-        $tipLayout.Width  = $wide + $tipBullet + (2 * $tipPad)
-        $tipLayout.Height = $high
+    # Everything these three handlers need is hung on the controls themselves and
+    # reached through $sender, and NOT read out of this function's variables.
+    #
+    # The other handlers in this file get away with that because they only ever run
+    # from a click, with Show-BffGui still on the stack at ShowDialog. CellMouseEnter
+    # does not: WinForms raises it from its own layout code - handle creation calls
+    # AdjustFillingColumns, which calls UpdateMouseEnteredCell - and there the
+    # function is gone, so a local resolves to nothing and the handler dies inside
+    # a window that has not finished opening yet.
+    $tipState = [pscustomobject]@{
+        Tip    = $rowTip
+        Lines  = New-Object System.Collections.Generic.List[object]
+        Row    = -1
+        Width  = 0
+        Height = 0
+        Font   = $font
+        Pad    = 8      # border to content
+        Bullet = 24     # mark column inside the tooltip
+        MaxW   = 560    # wrap rather than run off the screen
     }
+    $rowTip.Tag = $tipState
+    $grid.Tag   = $tipState
 
+    # Measured when the tooltip is filled and reused when it is drawn: laying the
+    # text out twice risks the two disagreeing and the last line being clipped.
     $rowTip.Add_Popup({
         param($sender, $e)
-        $e.ToolTipSize = New-Object System.Drawing.Size($tipLayout.Width, $tipLayout.Height)
+        $s = $sender.Tag
+        if (-not $s) { return }
+        $e.ToolTipSize = New-Object System.Drawing.Size($s.Width, $s.Height)
     })
 
     $rowTip.Add_Draw({
         param($sender, $e)
+        $s = $sender.Tag
+        if (-not $s) { return }
         $e.DrawBackground()
         $e.DrawBorder()
-        $textW = $e.Bounds.Width - $tipBullet - (2 * $tipPad)
-        $y = $tipPad
-        foreach ($r in $tipRows) {
-            if ($r.Image) { $e.Graphics.DrawImage($r.Image, $tipPad, $y + 1) }
+        $textW = $e.Bounds.Width - $s.Bullet - (2 * $s.Pad)
+        $y = $s.Pad
+        foreach ($line in $s.Lines) {
+            if ($line.Image) { $e.Graphics.DrawImage($line.Image, $s.Pad, $y + 1) }
             [System.Windows.Forms.TextRenderer]::DrawText(
-                $e.Graphics, $r.Text, $font,
-                (New-Object System.Drawing.Rectangle(($tipPad + $tipBullet), $y, $textW, $r.Height)),
+                $e.Graphics, $line.Text, $s.Font,
+                (New-Object System.Drawing.Rectangle(($s.Pad + $s.Bullet), $y, $textW, $line.Height)),
                 [System.Drawing.SystemColors]::InfoText,
                 [System.Windows.Forms.TextFormatFlags]::WordBreak)
-            $y += $r.Height + 4
+            $y += $line.Height + 4
         }
     })
 
     # Any cell in the row, not just the mark: the tooltip is about the row.
     $grid.Add_CellMouseEnter({
         param($sender, $e)
-        if ($e.RowIndex -lt 0) { return }
+        $s = $sender.Tag
+        if (-not $s) { return }
+        # RowIndex can point past the rows while the grid is still laying itself out.
+        if ($e.RowIndex -lt 0 -or $e.RowIndex -ge $sender.Rows.Count) { return }
         # Re-showing the same tooltip as the mouse crosses cells makes it flicker.
-        if ($tipAt.Row -eq $e.RowIndex) { return }
-        $tipAt.Row = $e.RowIndex
+        if ($s.Row -eq $e.RowIndex) { return }
+        $s.Row = $e.RowIndex
 
-        $plan = $grid.Rows[$e.RowIndex].Tag
+        $plan = $sender.Rows[$e.RowIndex].Tag
         if (-not $plan) { return }
 
-        $tipRows.Clear()
+        $s.Lines.Clear()
         foreach ($line in (Get-BffPlanTipLine -Plan $plan)) {
-            $tipRows.Add([pscustomobject]@{
-                Image = (New-BffMark -Kind $line.Kind)
-                Text  = $line.Text
+            $s.Lines.Add([pscustomobject]@{
+                Image = (New-BffMark -Kind $line.Kind); Text = $line.Text; Height = 18
             })
         }
 
-        # Where it came from and where it is going, which the two path columns
-        # otherwise only show when they are turned on.
-        $tipRows.Add([pscustomobject]@{ Image = $null; Text = ('from:  ' + $grid.Rows[$e.RowIndex].Cells['Source'].Value) })
-        if ($grid.Rows[$e.RowIndex].Cells['Destination'].Value) {
-            $tipRows.Add([pscustomobject]@{ Image = $null; Text = ('to:    ' + $grid.Rows[$e.RowIndex].Cells['Destination'].Value) })
+        # Always the absolute paths, whatever the columns are showing. Read off the
+        # plan rather than the cells, so shortening a column cannot quietly shorten
+        # these too.
+        $s.Lines.Add([pscustomobject]@{
+            Image = $null; Text = ('from:  ' + (Get-BffRowFolder -Plan $plan -Full)); Height = 18
+        })
+        if ($plan.Destination) {
+            $s.Lines.Add([pscustomobject]@{
+                Image = $null; Text = ('to:    ' + $plan.Destination); Height = 18
+            })
         }
 
-        & $measureTip
+        $textW = $s.MaxW - $s.Bullet - (2 * $s.Pad)
+        $wide  = 0
+        $high  = 2 * $s.Pad
+        foreach ($line in $s.Lines) {
+            $size = [System.Windows.Forms.TextRenderer]::MeasureText(
+                        $line.Text, $s.Font,
+                        (New-Object System.Drawing.Size($textW, 0)),
+                        [System.Windows.Forms.TextFormatFlags]::WordBreak)
+            $line.Height = [Math]::Max($size.Height, 18)
+            if ($size.Width -gt $wide) { $wide = $size.Width }
+            $high += $line.Height + 4
+        }
+        $s.Width  = $wide + $s.Bullet + (2 * $s.Pad)
+        $s.Height = $high
 
-        $cell = $grid.GetCellDisplayRectangle($e.ColumnIndex, $e.RowIndex, $false)
-        $rowTip.Show(' ', $grid, $cell.Left, $cell.Bottom + 2, 30000)
+        $cell = $sender.GetCellDisplayRectangle($e.ColumnIndex, $e.RowIndex, $false)
+        $s.Tip.Show(' ', $sender, $cell.Left, $cell.Bottom + 2, 30000)
     })
 
     $grid.Add_MouseLeave({
-        $rowTip.Hide($grid)
-        $tipAt.Row = -1
+        param($sender, $e)
+        $s = $sender.Tag
+        if (-not $s) { return }
+        $s.Tip.Hide($sender)
+        $s.Row = -1
     })
 
     # ---------------------------------------------------------------- status bar
@@ -497,15 +566,11 @@ function Show-BffGui {
 
         $grid.SuspendLayout()
         foreach ($p in $rows) {
-            $source = if ($p.Texture.Origin -eq 'BA2') {
-                '{0} -> {1}' -f $p.Texture.ArchivePath, $p.Texture.FullName
-            } else { $p.Texture.FullName }
-
             $i = $grid.Rows.Add(@(
                 $p.Texture.ModName, $p.Texture.Name, $p.Texture.Slot,
                 $p.Texture.Describe(), $p.Describe(), $p.Action,
                 $null,
-                $source, $p.Destination))
+                (Get-BffRowFolder -Plan $p -Full:$chkFullPaths.Checked)))
 
             # Assigned to the cell rather than passed in the array above: a value
             # going through a PowerShell array arrives wrapped in a PSObject, and
@@ -795,9 +860,11 @@ function Show-BffGui {
         [void] $form.BeginInvoke([Action] { if ($state.Scanned) { & $fillGrid } })
     })
 
+    # Both columns are always there now; the tick swaps what they hold between the
+    # path under the mod and the absolute one, which means refilling rather than
+    # showing and hiding.
     $chkFullPaths.Add_CheckedChanged({
-        $grid.Columns['Source'].Visible      = $chkFullPaths.Checked
-        $grid.Columns['Destination'].Visible = $chkFullPaths.Checked
+        if ($state.Scanned) { & $fillGrid }
     })
 
     & $refreshProfile
