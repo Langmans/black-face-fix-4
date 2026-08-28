@@ -132,6 +132,22 @@ if ($handles) {
     Check 'path columns start hidden' (-not $handles.Grid.Columns['Source'].Visible -and
                                        -not $handles.Grid.Columns['Destination'].Visible)
 
+    # The progress bar and the status line have to grow with the window. Built at
+    # a fixed width they stop halfway across a maximised window, and the status
+    # line - which carries the path to the report - gets cut off mid-path. Widening
+    # the form here is what proves the anchors are doing it, rather than reading
+    # the Anchor property back and trusting it.
+    $wasWide = $handles.Progress.Width
+    $wasText = $handles.Status.Width
+    $form.Width = $form.Width + 400
+    $form.PerformLayout()
+    Check 'progress bar grows with the window' ($handles.Progress.Width -gt $wasWide) `
+        ("{0} -> {1}" -f $wasWide, $handles.Progress.Width)
+    Check 'status line grows with the window' ($handles.Status.Width -gt $wasText) `
+        ("{0} -> {1}" -f $wasText, $handles.Status.Width)
+    $form.Width = $form.Width - 400
+    $form.PerformLayout()
+
     # The reason is not a column any more - it is the tooltip, one line per mark
     # with the mark as its bullet. As a column every row opened with the same words
     # and the width cut off the part that differed.

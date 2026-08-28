@@ -407,14 +407,20 @@ function Show-BffGui {
     $bottom.Padding = New-Object System.Windows.Forms.Padding(10, 4, 10, 4)
     $form.Controls.Add($bottom)
 
+    # Anchored left AND right so both grow with the window. Without the right
+    # anchor they keep the width they were built at, which leaves the bar stopping
+    # halfway across a maximised window and the status line - which carries the
+    # path to the report - cut off in the middle.
     $progressBar          = New-Object System.Windows.Forms.ProgressBar
     $progressBar.Location = New-Object System.Drawing.Point(12, 6)
     $progressBar.Size     = New-Object System.Drawing.Size(1070, 14)
+    $progressBar.Anchor   = 'Top, Left, Right'
     $bottom.Controls.Add($progressBar)
 
     $status           = New-Object System.Windows.Forms.Label
     $status.Location  = New-Object System.Drawing.Point(12, 26)
     $status.Size      = New-Object System.Drawing.Size(1070, 20)
+    $status.Anchor    = 'Top, Left, Right'
     $status.Text      = 'Press Scan to see what would change. Nothing is written until you press Apply.'
     $bottom.Controls.Add($status)
 
@@ -789,11 +795,12 @@ function Show-BffGui {
 
     # Handles for tests: the scan can then be driven without a visible window.
     $form.Tag = [pscustomobject]@{
-        State   = $state
-        Scan    = $doScan
-        Grid    = $grid
-        Status  = $status
-        ModList = $modList
+        State    = $state
+        Scan     = $doScan
+        Grid     = $grid
+        Status   = $status
+        ModList  = $modList
+        Progress = $progressBar
     }
 
     if ($BuildOnly) {
