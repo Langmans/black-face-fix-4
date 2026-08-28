@@ -140,6 +140,17 @@ if ($handles) {
     # A mark per row in front of the reason, with its own tooltip saying what the
     # shape means. An image column that never gets a value renders as an empty
     # gap, which looks like a layout bug rather than a missing value.
+    # Two marks that compose, not one picture per action: a row that resizes and
+    # re-encodes shows both, and nothing shows more than two.
+    $allActions = @('Skip', 'Resize', 'Reformat', 'ResizeAndReformat', 'Review', 'Error')
+    $tooMany = @($allActions | Where-Object { @(Get-BffActionMark -Action $_).Count -gt 2 })
+    Check 'never more than two marks' ($tooMany.Count -eq 0) ($tooMany -join ', ')
+    Check 'both changes show both marks' `
+        ((@(Get-BffActionMark -Action 'ResizeAndReformat') -join ',') -eq 'Resize,Reformat') `
+        ((Get-BffActionMark -Action 'ResizeAndReformat') -join ',')
+    $single = @($allActions | Where-Object { $_ -ne 'ResizeAndReformat' -and @(Get-BffActionMark -Action $_).Count -ne 1 })
+    Check 'every other action shows one' ($single.Count -eq 0) ($single -join ', ')
+
     $mark = $handles.Grid.Columns['Mark']
     Check 'Mark column exists' ($null -ne $mark)
     if ($mark) {

@@ -57,16 +57,15 @@ To undo everything: disable the `[face-...]` mods.
 
 ### Reading the table
 
-Every row carries a mark in front of its reason. They are a system rather than six
-unrelated pictures: **the outline says the size changes, the fill says the format
-does**, and a row doing both gets both.
+Every row carries a mark in front of its reason. There are only two to learn, and a
+row that does both shows both:
 
 | Mark | Meaning |
 |------|---------|
+| blue nested squares | the size is wrong, so the texture is redrawn |
+| amber split square | the format is wrong, so the texture is re-encoded |
+| both, side by side | both are wrong |
 | grey tick | already matches the profile, nothing is written |
-| blue outline, blue block | the size is wrong; the format is kept |
-| grey outline, amber block | the size is right; the format is re-encoded |
-| blue outline, amber block | both are wrong |
 | orange bar | left alone on purpose - look at this one yourself |
 | red cross | could not be read or planned |
 

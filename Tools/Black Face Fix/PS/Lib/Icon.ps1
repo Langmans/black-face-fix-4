@@ -173,38 +173,78 @@ function ConvertTo-BffIcon {
 
 # ---------------------------------------------------------------- row glyphs
 #
-# One small mark per action, shown next to the reason in the grid. The reason
-# text is the authority; these only let you see the shape of a scan at a glance -
-# which rows are being left alone, which are being rewritten, which want a human.
+# Marks shown next to the reason in the grid. The reason text is the authority;
+# these only let you see the shape of a scan at a glance - which rows are being
+# left alone, which are being rewritten, which want a human.
 #
-# Colours match the meaning rather than the severity: blue moves pixels, amber
-# rewrites bytes, grey does nothing, orange wants a look, red failed.
+# There are two marks that can appear together, rather than one mark per action:
+# a row that resizes AND re-encodes shows both, side by side. Two marks the eye
+# can learn separately beat six it has to tell apart, and it means the pair reads
+# the same way whether it turns up alone or together.
+#
+#   resize    blue nested squares - the picture is redrawn smaller or larger
+#   reformat  amber square split in two - same picture, different encoding
+#
+# Skip, Review and Error take a single slot of their own: a tick, a bar, a cross.
+#
+# Colours carry meaning rather than severity: blue moves pixels, amber rewrites
+# bytes, grey does nothing, orange wants a look, red failed. They are weighted
+# for a white row - an earlier, lighter set was judged on a grey sheet and all
+# but disappeared against the grid it actually sits in.
 $script:BffGlyphCache = @{}
 
-function New-BffActionGlyph {
+# One slot is 16px, and no action ever needs more than two.
+$script:BffGlyphSlot  = 16
+$script:BffGlyphWidth = 34
+
+function New-BffMark {
     <#
     .SYNOPSIS
-    A 16x16 mark for one plan action. Cached, since a scan draws thousands of rows.
+    One 16x16 mark. Kinds: Resize, Reformat, Skip, Review, Error.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)] [string] $Action)
+    param([Parameter(Mandatory)] [string] $Kind)
 
-    if ($script:BffGlyphCache.ContainsKey($Action)) { return $script:BffGlyphCache[$Action] }
-
-    $grey   = [System.Drawing.Color]::FromArgb(255, 150, 158, 168)
-    $blue   = [System.Drawing.Color]::FromArgb(255,  58, 132, 200)
-    $amber  = [System.Drawing.Color]::FromArgb(255, 214, 146,  38)
+    $grey   = [System.Drawing.Color]::FromArgb(255, 120, 130, 142)
+    $blue   = [System.Drawing.Color]::FromArgb(255,  40, 118, 190)
+    $amber  = [System.Drawing.Color]::FromArgb(255, 208, 132,  16)
     $orange = [System.Drawing.Color]::FromArgb(255, 214,  99,  20)
     $red    = [System.Drawing.Color]::FromArgb(255, 190,  54,  54)
 
-    $size = 16
-    $bmp  = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $g    = [System.Drawing.Graphics]::FromImage($bmp)
+    $n   = $script:BffGlyphSlot
+    $bmp = New-Object System.Drawing.Bitmap($n, $n, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g   = [System.Drawing.Graphics]::FromImage($bmp)
     try {
         $g.SmoothingMode = 'AntiAlias'
         $g.Clear([System.Drawing.Color]::Transparent)
 
-        switch ($Action) {
+        switch ($Kind) {
+            'Resize' {
+                # Nested squares: the same picture, drawn at another size.
+                $pen = New-Object System.Drawing.Pen($blue, 2)
+                $pen.Alignment = 'Inset'
+                $g.DrawRectangle($pen, 1, 1, 13, 13)
+                $pen.Dispose()
+                $b = New-Object System.Drawing.SolidBrush($blue)
+                $g.FillRectangle($b, 5, 5, 6, 6)
+                $b.Dispose()
+            }
+            'Reformat' {
+                # One square split corner to corner: same picture, encoded
+                # differently. Deliberately not a nested shape - the two marks
+                # have to be told apart by outline, not only by colour.
+                $b = New-Object System.Drawing.SolidBrush($amber)
+                $g.FillPolygon($b, [System.Drawing.Point[]] @(
+                    (New-Object System.Drawing.Point(2, 2)),
+                    (New-Object System.Drawing.Point(14, 2)),
+                    (New-Object System.Drawing.Point(2, 14))))
+                $b.Dispose()
+
+                $pen = New-Object System.Drawing.Pen($amber, 2)
+                $pen.Alignment = 'Inset'
+                $g.DrawRectangle($pen, 1, 1, 13, 13)
+                $pen.Dispose()
+            }
             'Skip' {
                 # A tick: nothing to do here.
                 $pen = New-Object System.Drawing.Pen($grey, 2)
@@ -228,33 +268,56 @@ function New-BffActionGlyph {
                 $g.DrawLine($pen, 12, 4, 4, 12)
                 $pen.Dispose()
             }
-            default {
-                # Resize, Reformat and both: the same nested squares as the window
-                # icon. The outline says the size changes, the fill says the format
-                # does, and a row doing both gets both.
-                $resizes    = ($Action -eq 'Resize'   -or $Action -eq 'ResizeAndReformat')
-                $reformats  = ($Action -eq 'Reformat' -or $Action -eq 'ResizeAndReformat')
+        }
+    }
+    finally { $g.Dispose() }
 
-                if ($resizes) {
-                    $pen = New-Object System.Drawing.Pen($blue, 2)
-                    $pen.Alignment = 'Inset'
-                    $g.DrawRectangle($pen, 2, 2, 11, 11)
-                    $pen.Dispose()
-                }
-                else {
-                    # Format-only: keep the outline, but muted, so the eye reads
-                    # the fill as the thing that changed.
-                    $pen = New-Object System.Drawing.Pen($grey, 1)
-                    $pen.Alignment = 'Inset'
-                    $g.DrawRectangle($pen, 2, 2, 11, 11)
-                    $pen.Dispose()
-                }
+    return $bmp
+}
 
-                $fillColour = if ($reformats) { $amber } else { $blue }
-                $b = New-Object System.Drawing.SolidBrush($fillColour)
-                $g.FillRectangle($b, 6, 6, 4, 4)
-                $b.Dispose()
-            }
+function Get-BffActionMark {
+    <#
+    .SYNOPSIS
+    Which marks an action shows, in order. Never more than two.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Action)
+
+    switch ($Action) {
+        'Resize'            { return @('Resize') }
+        'Reformat'          { return @('Reformat') }
+        'ResizeAndReformat' { return @('Resize', 'Reformat') }
+        'Review'            { return @('Review') }
+        'Error'             { return @('Error') }
+        default             { return @('Skip') }
+    }
+}
+
+function New-BffActionGlyph {
+    <#
+    .SYNOPSIS
+    The image for one plan action: its marks laid out side by side, left aligned
+    so a single mark sits under the first of a pair. Cached, since a scan draws
+    thousands of rows and every row of the same action shares one bitmap.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Action)
+
+    if ($script:BffGlyphCache.ContainsKey($Action)) { return $script:BffGlyphCache[$Action] }
+
+    $kinds = @(Get-BffActionMark -Action $Action)
+    $n     = $script:BffGlyphSlot
+    $bmp   = New-Object System.Drawing.Bitmap($script:BffGlyphWidth, $n,
+                                              [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g     = [System.Drawing.Graphics]::FromImage($bmp)
+    try {
+        $g.Clear([System.Drawing.Color]::Transparent)
+        $x = 0
+        foreach ($k in $kinds) {
+            $mark = New-BffMark -Kind $k
+            $g.DrawImage($mark, $x, 0)
+            $mark.Dispose()
+            $x += $n + 2
         }
     }
     finally { $g.Dispose() }

@@ -279,7 +279,7 @@ function Show-BffGui {
             # Fixed width: a fill-sized image column stretches with the window and
             # leaves the mark floating in the middle of an empty gap.
             $c.AutoSizeMode = 'None'
-            $c.Width        = 26
+            $c.Width        = 40
         }
         else {
             $c            = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
