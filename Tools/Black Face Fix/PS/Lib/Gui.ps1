@@ -241,10 +241,19 @@ function Show-BffGui {
     $grid.ReadOnly               = $true
     $grid.AllowUserToAddRows     = $false
     $grid.AllowUserToDeleteRows  = $false
+    # Defaults to $true, which lets a row be dragged to any height. There is
+    # nothing in a row worth more space - the reason moved to the tooltip - and a
+    # row stretched by accident stays that way until the next scan.
+    $grid.AllowUserToResizeRows  = $false
     $grid.SelectionMode          = 'FullRowSelect'
     $grid.AutoSizeColumnsMode    = 'Fill'
     $grid.RowHeadersVisible      = $false
     $grid.BackgroundColor        = [System.Drawing.Color]::White
+
+    # Banding, kept very faint. Rows are narrow and there are nine columns of
+    # near-identical text, so the eye needs help staying on one line - but the
+    # marks have to keep their contrast, and a heavier band eats it.
+    $grid.AlternatingRowsDefaultCellStyle.BackColor = [System.Drawing.Color]::FromArgb(246, 247, 250)
     $form.Controls.Add($grid)
     $grid.BringToFront()
 

@@ -132,6 +132,24 @@ if ($handles) {
     Check 'path columns start hidden' (-not $handles.Grid.Columns['Source'].Visible -and
                                        -not $handles.Grid.Columns['Destination'].Visible)
 
+    # Rows must not be draggable. The property is the behaviour here - it is the
+    # switch WinForms checks before it starts a drag - and it defaults to on, so a
+    # row could be stretched to any height by accident and stayed that way.
+    Check 'rows cannot be resized by dragging' (-not $handles.Grid.AllowUserToResizeRows)
+
+    # Banding, and it has to actually differ from the plain row or it is not there.
+    $band  = $handles.Grid.AlternatingRowsDefaultCellStyle.BackColor
+    $plain = $handles.Grid.DefaultCellStyle.BackColor
+    Check 'alternating rows are banded' `
+        (-not $band.IsEmpty -and $band.ToArgb() -ne $plain.ToArgb()) `
+        ("band={0} plain={1}" -f $band, $plain)
+
+    # Faint enough that the marks keep their contrast: anything below about 240 per
+    # channel starts competing with them.
+    Check 'the band stays faint' `
+        ($band.R -ge 240 -and $band.G -ge 240 -and $band.B -ge 240) `
+        ("{0},{1},{2}" -f $band.R, $band.G, $band.B)
+
     # The progress bar and the status line have to grow with the window. Built at
     # a fixed width they stop halfway across a maximised window, and the status
     # line - which carries the path to the report - gets cut off mid-path. Widening
