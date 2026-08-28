@@ -50,10 +50,29 @@ Do not run it as administrator. It does not need it.
 2. Press **Scan**. Nothing is written yet - you get a table of every texture with its
    current size, its current format, the target, and the reason.
 3. Press **Apply** if the plan looks right.
-4. Enable **BlackFaceFix Output** in Mod Organizer and put it at the **bottom** of
-   the load order.
+4. In Mod Organizer press **F5**, tick each new `[face-...]` mod, and drag each one
+   directly below the mod it was made from.
 
-To undo everything: disable that one mod.
+To undo everything: disable the `[face-...]` mods.
+
+### Reading the table
+
+Every row carries a mark in front of its reason. They are a system rather than six
+unrelated pictures: **the outline says the size changes, the fill says the format
+does**, and a row doing both gets both.
+
+| Mark | Meaning |
+|------|---------|
+| grey tick | already matches the profile, nothing is written |
+| blue outline, blue block | the size is wrong; the format is kept |
+| grey outline, amber block | the size is right; the format is re-encoded |
+| blue outline, amber block | both are wrong |
+| orange bar | left alone on purpose - look at this one yourself |
+| red cross | could not be read or planned |
+
+Hovering a mark says what it means and why that row got it. Hovering any other cell
+shows the full source path, destination and reason, which is how you read the two
+path columns without turning them on.
 
 ---
 
@@ -103,6 +122,11 @@ two mods creates two folders.
 2. Tick each of them.
 3. Drag each one **directly below the mod it was made from**.
 4. They need no plugin and no entry in the load order on the right.
+
+Typing `[face-` in MO2's search box filters the list down to exactly these folders,
+which beats scrolling a load order of several hundred mods looking for them. It is
+also the quickest way to find them all again later - to tick them, to disable a
+profile you have stopped using, or to delete the lot and start over.
 
 That last step is the whole point of splitting them up. A single shared output mod
 has to sit at the bottom to work, which means it also overrides mods that have
@@ -177,6 +201,39 @@ when it is valid for the slot**, and only convert when it is not.
 Bethesda ships BC7 face diffuses, the CK wiki asks for BC1, and mods use BC3 when
 they need alpha. All three are correct, so all three are kept.
 
+### Forcing the formats the game ships
+
+Tick **Force vanilla formats**, pass `-VanillaFormats`, or set
+`Conversion.ForceVanillaFormats = $true`, and the "keep any valid format" rule is
+narrowed to the single format Fallout 4 itself uses for that slot.
+
+The engine builds a face from four texture arrays, and a texture array needs every
+slice at the same size, format and mip count. Measured against the game's own
+archives, vanilla holds to that without a single exception:
+
+| Array | Where it lives | Size | Format | Mips |
+|-------|----------------|------|--------|------|
+| Mask | `Character Assets\TintMasks` (57 files) | 1024 | BC1 | 1 |
+| Diffuse | `Character Assets\FaceDetails\*_d` (146) | 1024 | BC3 | 11 |
+| Normal | `…\FaceDetails\*_n` (89) | 1024 | BC5 | 11 |
+| Specular | `…\FaceDetails\*_s` (80) | 512 | BC5 | 10 |
+
+So keeping a mod's own valid-but-different format can leave an array holding BC1
+next to BC7, which is the thing that cannot work.
+
+It is **off by default**, and should stay off unless you are chasing a specific
+face. Which textures actually share an array is decided by the tint records in the
+plugin, not by the folder a file sits in. Looks Menu Customization Compendium ships
+209 overlays under `FaceDetails` as BC1 with a single mip - the TintMasks profile
+rather than the FaceDetails one - and those faces are not black, so those overlays
+evidently live in an array of their own. Forcing them to BC3 would make them the odd
+one out instead of fixing anything.
+
+Slots whose valid-format list is `*` - skin and subsurface maps - are never touched
+by this. They take no part in the matching.
+
+Mip counts are reported (`SourceMips` in the CSV) but not enforced.
+
 ---
 
 ## What counts as a face texture
@@ -227,6 +284,7 @@ Launcher.bat -DryRun                    scan and report, write nothing
 Launcher.bat -ProfileName "HD DLC"      override the detected profile
 Launcher.bat -Yes                       skip the confirmation prompt
 Launcher.bat -Force                     re-encode even correct textures
+Launcher.bat -VanillaFormats            use the format the game ships, not any valid one
 Launcher.bat -OutputMode InPlace        overwrite originals, keep <name>.backup
 Launcher.bat -Restore                   put every .backup back
 Launcher.bat -All                       print every row, not just the first 60
@@ -255,6 +313,19 @@ nothing in quality: the source is decoded once and block-compressed once either 
 The flag for exhaustive BC7 compression was renamed between builds (`-bcmax` became
 `-bc x`), so the tool probes `texconv --help` once per run and uses whichever it
 finds.
+
+texconv takes many input files per call, and doing so is far faster than one process
+per file: eight files took 294 ms as eight calls against 90 ms as one. So textures
+sharing a target size and format go through together, and each batch is verified in
+a single texdiag pass. Anything a batch could not produce or verify is retried on its
+own, so an error lands on the file that caused it rather than on the whole group.
+Running several texconv processes in parallel instead tops out around 1.7x on 20
+cores and gets worse past four, which is why batching is the lever and concurrency
+is not.
+
+The window icon and the row marks are drawn at run time rather than shipped as image
+files, so the repository stays plain text. See `PS\Lib\Icon.ps1` - the shape is
+defined in the same place it is described.
 
 ---
 
