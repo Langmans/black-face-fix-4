@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0            # same as BlackFaceFix.ps1
 
 $lib = Join-Path $Tool 'PS\Lib'
-foreach ($f in @('Types','Config','Environment','TexInfo','Ba2','Discovery','Planner','Convert','Report','Gui')) {
+foreach ($f in @('Types','Config','Environment','TexInfo','Ba2','Discovery','Planner','Convert','Report','Icon','Gui')) {
     . (Join-Path $lib "$f.ps1")
 }
 
@@ -82,6 +82,20 @@ if ($vanillaBox) {
         ("box={0} setting={1}" -f $vanillaBox.Checked, $settings.Conversion.ForceVanillaFormats)
 }
 
+# The icon is assembled byte by byte in Icon.ps1, so a mistake in the header
+# shows up as a silently blank icon rather than an error. Ask it for the two
+# sizes Windows actually requests and check the frames are really there.
+Check 'window icon built' ($null -ne $form.Icon)
+if ($form.Icon) {
+    foreach ($want in @(16, 32)) {
+        $sized = New-Object System.Drawing.Icon($form.Icon, $want, $want)
+        Check ("window icon has a {0}px frame" -f $want) `
+            ($sized.Width -eq $want -and $sized.Height -eq $want) `
+            ("got {0}x{1}" -f $sized.Width, $sized.Height)
+        $sized.Dispose()
+    }
+}
+
 $handles = $form.Tag
 Check 'test handles exposed' ($null -ne $handles -and $null -ne $handles.State)
 
@@ -121,6 +135,27 @@ if ($handles) {
     if ($handles.Grid.Rows.Count -gt 0) {
         $tip = $handles.Grid.Rows[0].Cells[0].ToolTipText
         Check 'tooltip carries from/to and why' ($tip -match 'from:' -and $tip -match 'to:') $tip
+    }
+
+    # A mark per row in front of the reason, with its own tooltip saying what the
+    # shape means. An image column that never gets a value renders as an empty
+    # gap, which looks like a layout bug rather than a missing value.
+    $mark = $handles.Grid.Columns['Mark']
+    Check 'Mark column exists' ($null -ne $mark)
+    if ($mark) {
+        Check 'Mark column holds images' ($mark -is [System.Windows.Forms.DataGridViewImageColumn]) $mark.GetType().Name
+
+        if ($handles.Grid.Rows.Count -gt 0) {
+            $missing = @($handles.Grid.Rows | Where-Object { $null -eq $_.Cells['Mark'].Value })
+            Check 'every row has a glyph' ($missing.Count -eq 0) ("{0} rows without one" -f $missing.Count)
+
+            $row      = $handles.Grid.Rows[0]
+            $markTip  = $row.Cells['Mark'].ToolTipText
+            $action   = [string] $row.Cells['Action'].Value
+            Check 'glyph tooltip names the action' ($markTip -like ($action + ':*')) $markTip
+            Check 'glyph tooltip explains the action' `
+                ($markTip -match [regex]::Escape((Get-BffActionMeaning -Action $action))) $markTip
+        }
     }
 
     # The GUI has to write the same log and CSV the console run does. It used to

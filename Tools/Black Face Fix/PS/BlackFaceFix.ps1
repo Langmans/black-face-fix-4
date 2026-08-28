@@ -124,6 +124,7 @@ function Invoke-Main {
 
     # ---- GUI ----------------------------------------------------------------
     if ($Gui) {
+        . (Join-Path $libPath 'Icon.ps1')
         . (Join-Path $libPath 'Gui.ps1')
         # The GUI writes its own timestamped log and CSV per scan, so the wrapper
         # below must not add a second file holding just the banner.

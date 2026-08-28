@@ -58,6 +58,10 @@ function Show-BffGui {
     $form.StartPosition   = 'CenterScreen'
     $form.MinimumSize     = New-Object System.Drawing.Size(900, 560)
 
+    # Drawn rather than shipped - see Icon.ps1. $null when it could not be built,
+    # and a Form is happy to be assigned that: it falls back to the default.
+    $form.Icon = New-BffIcon
+
     $font      = New-Object System.Drawing.Font('Segoe UI', 9)
     $fontBold  = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
     $form.Font = $font
@@ -247,14 +251,32 @@ function Show-BffGui {
     foreach ($col in @(
         @{ N = 'Mod';    W = 16 }, @{ N = 'File';   W = 18 }, @{ N = 'Slot';   W = 8 },
         @{ N = 'Now';    W = 15 }, @{ N = 'Target'; W = 15 }, @{ N = 'Action'; W = 10 },
+        # A mark per action in front of the reason, so the shape of a scan reads at
+        # a glance. The reason text next to it stays the authority.
+        @{ N = 'Mark';   W = 3;  Image = $true },
         @{ N = 'Why';    W = 45 },
         # Hidden until "Show full paths" is ticked: useful for checking exactly
         # which file is read and where the result lands, far too wide to always show.
         @{ N = 'Source'; W = 40; Hidden = $true }, @{ N = 'Destination'; W = 40; Hidden = $true })) {
-        $c                  = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-        $c.HeaderText       = $col.N
-        $c.Name             = $col.N
-        $c.FillWeight       = $col.W
+
+        if ($col.ContainsKey('Image')) {
+            $c              = New-Object System.Windows.Forms.DataGridViewImageColumn
+            # Normal centres a graphic smaller than its cell. Zoom would scale the
+            # 16px glyph up to the row height and blur it.
+            $c.ImageLayout  = 'Normal'
+            $c.HeaderText   = ''
+            # Fixed width: a fill-sized image column stretches with the window and
+            # leaves the mark floating in the middle of an empty gap.
+            $c.AutoSizeMode = 'None'
+            $c.Width        = 26
+        }
+        else {
+            $c            = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
+            $c.HeaderText = $col.N
+            $c.FillWeight = $col.W
+        }
+
+        $c.Name = $col.N
         if ($col.ContainsKey('Hidden')) { $c.Visible = $false }
         [void] $grid.Columns.Add($c)
     }
@@ -347,7 +369,8 @@ function Show-BffGui {
 
             $i = $grid.Rows.Add(@(
                 $p.Texture.ModName, $p.Texture.Name, $p.Texture.Slot,
-                $p.Texture.Describe(), $p.Describe(), $p.Action, $p.Reason,
+                $p.Texture.Describe(), $p.Describe(), $p.Action,
+                (New-BffActionGlyph -Action $p.Action), $p.Reason,
                 $source, $p.Destination))
 
             $grid.Rows[$i].DefaultCellStyle.ForeColor = switch ($p.Action) {
@@ -363,6 +386,12 @@ function Show-BffGui {
             $tip = "from: {0}`nto:   {1}`n`n{2}" -f
                    $r.Cells['Source'].Value, $r.Cells['Destination'].Value, $r.Cells['Why'].Value
             foreach ($c in $r.Cells) { $c.ToolTipText = $tip }
+
+            # The mark carries less than the text beside it, so its own tooltip
+            # says what the shape means before repeating the reason.
+            $act = [string] $r.Cells['Action'].Value
+            $r.Cells['Mark'].ToolTipText = "{0}: {1}`n`n{2}" -f
+                $act, (Get-BffActionMeaning -Action $act), $r.Cells['Why'].Value
         }
 
         $grid.ResumeLayout()
