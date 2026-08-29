@@ -310,22 +310,28 @@ function Show-BffGui {
     })
 
     foreach ($col in @(
-        @{ N = 'Mod';    W = 16 }, @{ N = 'File';   W = 18 }, @{ N = 'Slot';   W = 8 },
+        @{ N = 'Mod'; W = 16 },
+        # Between the mod and the file because that is the order the path itself
+        # runs in: which mod, then where in it, then which file. It holds the folder
+        # under textures\actors\character - the drive, the mod folder and the
+        # texture root are identical on every row and only cost width.
+        @{ N = 'Folder'; W = 20 },
+        @{ N = 'File';   W = 18 }, @{ N = 'Slot';   W = 8 },
         @{ N = 'Now';    W = 15 }, @{ N = 'Target'; W = 15 }, @{ N = 'Action'; W = 10 },
         # The marks replace a column of reason text. As a column it was unreadable:
         # every row opened with the same words, the width cut them off at the same
         # place, and the part that actually differed was the part that got cut. The
         # marks say the same thing in a glance, and hovering the row spells it out.
         @{ N = 'Mark';   W = 3;  Image = $true },
-        # Where under the face textures this one sits - not the absolute path,
-        # which is the same fifty characters on every row and pushes the part that
-        # differs off the right edge. "Show full paths" swaps it back to the
-        # absolute one; the row tooltip carries that either way.
+        # The absolute path, as its own column rather than by rewriting Folder:
+        # ticking "Show full paths" then adds information instead of trading one
+        # kind away for another. Off until asked for - it is wider than the rest of
+        # the row put together.
         #
         # There is no column for where the result lands: the output mod is the Mod
         # column plus the profile, so a column of it would repeat two others. The
         # tooltip's "to:" line has the real path.
-        @{ N = 'Folder'; W = 26 })) {
+        @{ N = 'FullPath'; H = 'Full path'; W = 40; Hidden = $true })) {
 
         if ($col.ContainsKey('Image')) {
             $c              = New-Object System.Windows.Forms.DataGridViewImageColumn
@@ -340,7 +346,7 @@ function Show-BffGui {
         }
         else {
             $c            = New-Object System.Windows.Forms.DataGridViewTextBoxColumn
-            $c.HeaderText = $col.N
+            $c.HeaderText = if ($col.ContainsKey('H')) { $col.H } else { $col.N }
             $c.FillWeight = $col.W
         }
 
@@ -567,10 +573,10 @@ function Show-BffGui {
         $grid.SuspendLayout()
         foreach ($p in $rows) {
             $i = $grid.Rows.Add(@(
-                $p.Texture.ModName, $p.Texture.Name, $p.Texture.Slot,
-                $p.Texture.Describe(), $p.Describe(), $p.Action,
+                $p.Texture.ModName, (Get-BffRowFolder -Plan $p), $p.Texture.Name,
+                $p.Texture.Slot, $p.Texture.Describe(), $p.Describe(), $p.Action,
                 $null,
-                (Get-BffRowFolder -Plan $p -Full:$chkFullPaths.Checked)))
+                (Get-BffRowFolder -Plan $p -Full)))
 
             # Assigned to the cell rather than passed in the array above: a value
             # going through a PowerShell array arrives wrapped in a PSObject, and
@@ -860,11 +866,10 @@ function Show-BffGui {
         [void] $form.BeginInvoke([Action] { if ($state.Scanned) { & $fillGrid } })
     })
 
-    # Both columns are always there now; the tick swaps what they hold between the
-    # path under the mod and the absolute one, which means refilling rather than
-    # showing and hiding.
+    # The full path is a column of its own, so this only has to show it. Every row
+    # already carries the value, which is why nothing needs refilling.
     $chkFullPaths.Add_CheckedChanged({
-        if ($state.Scanned) { & $fillGrid }
+        $grid.Columns['FullPath'].Visible = $chkFullPaths.Checked
     })
 
     & $refreshProfile

@@ -130,6 +130,20 @@ if ($handles) {
     # definition of what is scanned). The Folder column is what is left.
     Check 'Folder column exists' ($null -ne $handles.Grid.Columns['Folder'])
 
+    # Mod, then where in it, then which file: the order the path itself runs in.
+    Check 'Folder sits between Mod and File' `
+        ($handles.Grid.Columns['Mod'].Index -lt $handles.Grid.Columns['Folder'].Index -and
+         $handles.Grid.Columns['Folder'].Index -lt $handles.Grid.Columns['File'].Index) `
+        ("Mod={0} Folder={1} File={2}" -f $handles.Grid.Columns['Mod'].Index,
+                                          $handles.Grid.Columns['Folder'].Index,
+                                          $handles.Grid.Columns['File'].Index)
+
+    # The absolute path is an extra column rather than a rewrite of Folder, so
+    # asking for it adds information instead of trading one kind away for another.
+    Check 'Full path column exists'      ($null -ne $handles.Grid.Columns['FullPath'])
+    Check 'Full path column starts hidden' (-not $handles.Grid.Columns['FullPath'].Visible)
+    Check 'Folder column stays visible'  ($handles.Grid.Columns['Folder'].Visible)
+
     if ($changing.Count -gt 0) {
         $pl    = $changing[0]
         $short = Get-BffRowFolder -Plan $pl
@@ -147,6 +161,15 @@ if ($handles) {
         Check 'the folder column is much shorter' `
             ($short.Length -lt ($full.Length / 2)) ("{0} vs {1}" -f $short.Length, $full.Length)
         Check 'full paths are still available' ($full -match '(?i)^[a-z]:\\') $full
+
+        # Both values sit on every row from the start, which is why showing the
+        # full path is a visibility change and never a refill.
+        if ($handles.Grid.Rows.Count -gt 0) {
+            $row = $handles.Grid.Rows[0]
+            Check 'each row carries its folder'    ($row.Cells['Folder'].Value)   $row.Cells['Folder'].Value
+            Check 'each row carries its full path' ($row.Cells['FullPath'].Value -match '(?i)^[a-z]:\\') `
+                $row.Cells['FullPath'].Value
+        }
     }
 
     # CellMouseEnter is not only raised by a mouse. WinForms raises it from its own
