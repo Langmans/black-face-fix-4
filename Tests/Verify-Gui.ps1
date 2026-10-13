@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0            # same as BlackFaceFix.ps1
 
 $lib = Join-Path $Tool 'PS\Lib'
-foreach ($f in @('Types','Config','Environment','TexInfo','Ba2','Discovery','Planner','Convert','Report','Icon','Gui')) {
+foreach ($f in @('Types','Config','Environment','TexInfo','Ba2','Discovery','Planner','Convert','Report','Icon','GuiLogic','Gui')) {
     . (Join-Path $lib "$f.ps1")
 }
 

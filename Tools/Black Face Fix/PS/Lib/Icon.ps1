@@ -372,10 +372,10 @@ function Get-BffPlanTipLine {
     The tooltip for one row: a mark and the sentence that mark is about, in order.
 
     .NOTES
-    This is where the reason text lives now. It used to be a column, which meant
-    every row showed the same opening words truncated to the same width and the
-    part that differed was the part cut off. Split across the marks it is one
-    short line each, and the mark is its bullet.
+    This is where the reason text lives. A column of it is unreadable - every row
+    opens with the same words, cut off at the same width, so the part that differs
+    is the part that is lost. Split across the marks it is one short line each, and
+    the mark is its bullet.
 
     A mark with nothing specific to say about this row falls back to what the
     mark means in general.
