@@ -104,8 +104,10 @@ function Test-BffFaceTexture {
     Path relative to the textures\ folder, e.g. 'actors\character\preston\preston_d.dds'.
 
     .OUTPUTS
-    $null when it is not a face texture, otherwise a hashtable with Slot and Source
-    ('vanilla list', 'FaceDetails', 'head name', ...).
+    $null when it is not a face texture, otherwise a hashtable with Slot, Source
+    ('vanilla texture set', the full-scan folder, 'FaceCustomization', 'head name')
+    and IsMask. IsMask is true for the full-scan folders alone - FaceDetails and
+    TintMasks hold masks; FaceCustomization holds per-NPC face maps, which are not.
     #>
     [CmdletBinding()]
     param(
@@ -131,7 +133,7 @@ function Test-BffFaceTexture {
 
     # --- layer 1: the game's own texture set declarations ----------------------
     if ($VanillaFaceTextures.Textures.ContainsKey($key)) {
-        return @{ Slot = $VanillaFaceTextures.Textures[$key]; Source = 'vanilla texture set' }
+        return @{ Slot = $VanillaFaceTextures.Textures[$key]; Source = 'vanilla texture set'; IsMask = $false }
     }
 
     $inner = $key -replace '^actors\\character\\', ''
@@ -141,20 +143,20 @@ function Test-BffFaceTexture {
         $prefix = ($folder.Replace('/', '\').ToLowerInvariant().TrimEnd('\')) + '\'
         if ($inner.StartsWith($prefix)) {
             $rule = Resolve-BffSlot -FileName $fileName -SlotRules $SlotRules
-            return @{ Slot = $rule.Slot; Source = $folder }
+            return @{ Slot = $rule.Slot; Source = $folder; IsMask = $true }
         }
     }
 
     if ($inner.StartsWith('facecustomization\')) {
         if (-not $Settings.Scope.IncludeFaceCustomization) { return $null }
         $rule = Resolve-BffSlot -FileName $fileName -SlotRules $SlotRules
-        return @{ Slot = $rule.Slot; Source = 'FaceCustomization' }
+        return @{ Slot = $rule.Slot; Source = 'FaceCustomization'; IsMask = $false }
     }
 
     # --- layer 3: name based, everywhere else ----------------------------------
     if ($fileName -match $Settings.FaceRules.HeadNamePattern) {
         $rule = Resolve-BffSlot -FileName $fileName -SlotRules $SlotRules
-        return @{ Slot = $rule.Slot; Source = 'head name' }
+        return @{ Slot = $rule.Slot; Source = 'head name'; IsMask = $false }
     }
 
     return $null
@@ -212,7 +214,7 @@ function Get-BffCandidate {
             $t.ModName      = $root.Name
             $t.Origin       = $(if ($root.Kind -eq 'Mod') { 'Loose' } else { $root.Kind })
             $t.Slot         = $match.Slot
-            $t.IsTintMask   = ($match.Source -ne 'vanilla texture set' -and $match.Source -ne 'head name')
+            $t.IsTintMask   = $match.IsMask
             $t.MatchedBy    = $match.Source
 
             $result.Add($t)
@@ -284,7 +286,7 @@ function Get-BffArchiveCandidate {
                 $t.Origin       = 'BA2'
                 $t.ArchivePath  = $archive.FullName
                 $t.Slot         = $match.Slot
-                $t.IsTintMask   = ($match.Source -ne 'vanilla texture set' -and $match.Source -ne 'head name')
+                $t.IsTintMask   = $match.IsMask
                 $t.MatchedBy    = $match.Source
                 $t.Width        = $entry.Width
                 $t.Height       = $entry.Height

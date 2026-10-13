@@ -195,6 +195,18 @@ Describe 'Test-BffFaceTexture' {
             $m.Slot   | Should -Be $Slot
         }
 
+        It 'calls only what is under FaceDetails or TintMasks a mask' -TestCases @(
+            @{ Rel = 'actors\character\Character Assets\TintMasks\Blusher.dds';       IsMask = $true }
+            @{ Rel = 'actors\character\Character Assets\FaceDetails\Freckles_d.dds';  IsMask = $true }
+            @{ Rel = 'actors\character\FaceCustomization\Fallout4.esm\00001234_d.dds'; IsMask = $false }
+            @{ Rel = 'actors\character\Mayor\Mayor_s.dds';                            IsMask = $false }
+            @{ Rel = 'actors\character\BaseHumanMale\MaleHead_d.dds';                 IsMask = $false }
+        ) {
+            $settings = New-TestSettings
+            $settings.Scope.IncludeFaceCustomization = $true
+            (Test-Path-Of $Rel -Settings $settings).IsMask | Should -Be $IsMask
+        }
+
         It 'checks the game''s list before the folders' {
             $own = [pscustomobject]@{
                 Textures = @{ 'actors\character\character assets\tintmasks\special_s.dds' = 'Specular' }
@@ -340,6 +352,16 @@ Describe 'Get-BffCandidate' {
         $t = Find-Candidate | Where-Object Name -eq 'Blusher.dds'
         $t.IsTintMask | Should -BeTrue
         $t.MatchedBy  | Should -Be 'Character Assets\TintMasks'
+    }
+
+    It 'does not mark a FaceCustomization texture as a mask: it is a face map baked for one NPC' {
+        New-TestFile (Join-Path $i.Mods "Alpha\$char\FaceCustomization\Fallout4.esm\00001234_d.dds")
+        $settings = New-TestSettings
+        $settings.Scope.IncludeFaceCustomization = $true
+        $t = @(Get-BffCandidate -Environment $i.Environment -Settings $settings -SlotRules $rules -VanillaFaceTextures $vanilla) |
+             Where-Object Name -eq '00001234_d.dds'
+        $t.MatchedBy  | Should -Be 'FaceCustomization'
+        $t.IsTintMask | Should -BeFalse
     }
 
     It 'says where the game data and the overwrite folder''s textures came from' {

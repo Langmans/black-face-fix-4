@@ -34,14 +34,6 @@ Nothing in this section can be settled by more code - only by loading Fallout 4.
   array is decided by the tint records in the plugin. Reading those would make the
   format and mip rules exact instead of approximate, and would answer the LMCC
   question without trial and error.
-- **FaceCustomization textures are flagged as tint masks.** Discovery sets
-  `IsTintMask` for everything that was not matched by the vanilla list or the head
-  name, and that includes FaceCustomization - per-NPC baked face maps, not masks.
-  It means those rows get the tint mask mark in the window and are allowed BC4,
-  which only masks should be. `BffTexture.IsTintMask` itself says "anything under
-  FaceDetails or TintMasks". Probably a one-line fix (only the full-scan folders
-  count as masks); not changed yet because it changes what a FaceCustomization run
-  converts, and only matters with that box ticked.
 - **An oddities sweep was sketched but never run**, and is not in the repo: head DDS
   files with implausible dimensions, formats or channel content across a whole mod
   list.

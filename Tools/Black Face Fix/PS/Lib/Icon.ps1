@@ -358,8 +358,8 @@ function Get-BffPlanMark {
     $t = $Plan.Texture
     if ($t.Origin -eq 'BA2') { $marks.Add('Archive') }
 
-    # A file is one or the other: IsTintMask is set precisely when the match came
-    # from neither the vanilla record list nor the head name pattern.
+    # A file is at most one of the two: IsTintMask is set only for the FaceDetails
+    # and TintMasks folders, never for a match from the vanilla record list.
     if ($t.IsTintMask) { $marks.Add('TintMask') }
     elseif ($t.MatchedBy -eq 'vanilla texture set') { $marks.Add('FaceRecord') }
 
