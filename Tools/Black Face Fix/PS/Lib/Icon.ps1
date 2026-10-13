@@ -358,8 +358,8 @@ function Get-BffPlanMark {
     $t = $Plan.Texture
     if ($t.Origin -eq 'BA2') { $marks.Add('Archive') }
 
-    # A file is one or the other: IsTintMask is set precisely when the match came
-    # from neither the vanilla record list nor the head name pattern.
+    # A file is at most one of the two: IsTintMask is set only for the FaceDetails
+    # and TintMasks folders, never for a match from the vanilla record list.
     if ($t.IsTintMask) { $marks.Add('TintMask') }
     elseif ($t.MatchedBy -eq 'vanilla texture set') { $marks.Add('FaceRecord') }
 
@@ -372,10 +372,10 @@ function Get-BffPlanTipLine {
     The tooltip for one row: a mark and the sentence that mark is about, in order.
 
     .NOTES
-    This is where the reason text lives now. It used to be a column, which meant
-    every row showed the same opening words truncated to the same width and the
-    part that differed was the part cut off. Split across the marks it is one
-    short line each, and the mark is its bullet.
+    This is where the reason text lives. A column of it is unreadable - every row
+    opens with the same words, cut off at the same width, so the part that differs
+    is the part that is lost. Split across the marks it is one short line each, and
+    the mark is its bullet.
 
     A mark with nothing specific to say about this row falls back to what the
     mark means in general.

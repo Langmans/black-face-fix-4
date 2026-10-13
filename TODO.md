@@ -40,17 +40,14 @@ Nothing in this section can be settled by more code - only by loading Fallout 4.
 
 ## Testing
 
-- **`Verify-Ba2.ps1` needs the real game.** Without it the suite skips. The fix is a
-  simulated `Fallout4 - Textures1.ba2` built by the test: face textures at the paths,
-  sizes, formats and mip counts measured from the real archives, written by a small
-  BA2 writer for DX10 and GNRL with zlib chunks, in versions 1, 7 and 8. That covers
-  the reader completely. It cannot prove our picture of vanilla is right - only the
-  real archives can - so the real-archive run stays as an extra on a machine that
-  has the game.
-- **CI.** GitHub Actions on `windows-latest` has Windows PowerShell 5.1 and the .NET
-  Framework, `texconv` is bundled in the repo, and every suite is self-contained
-  except the one above. So it can run on every push once that one is.
-- **Coverage.** Measure it before choosing a target: Pester 5 can instrument the
-  `PS\Lib` files while the existing suites run, which gives a real number rather than
-  a guess. Expect the GUI's event handlers and the texconv failure paths to be the
-  hard part.
+- **`Verify-Ba2.ps1` needs the real game.** Without it the suite skips. The reader
+  is covered without it now - `Ba2.Tests.ps1` runs it to 100% on archives
+  `TestBa2.ps1` writes - so what is left for this suite is our picture of vanilla:
+  that the game's own face textures have the paths, sizes and formats the rules
+  assume. Only the real archives can show that, so it stays a run for a machine
+  with Fallout 4 installed. **Needs Ruben, after reinstalling the game:** run
+  `.\Tests\Verify-Ba2.ps1` once.
+- **`Dialogs.ps1` is only ever mocked.** Every function in it opens something on
+  screen - the confirm box, the folder picker, Explorer, the window itself - so no
+  test runs it. After a change there, open the window by hand and press Apply,
+  Restore backups, **...** and Open logs once each.

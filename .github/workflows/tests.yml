@@ -5,6 +5,9 @@
 # they really do not depend on anything installed on the machine that wrote them.
 # Verify-Ba2 needs the game's own archives and reports a skip until it has a
 # simulated one - see TODO.md.
+#
+# The Pester unit tests run too, and code coverage is part of passing: the files
+# Tests\Invoke-UnitTests.ps1 lists have to stay at 100%.
 
 name: tests
 
@@ -34,6 +37,19 @@ jobs:
               throw 'Expected Windows PowerShell 5.1 (Desktop edition).'
           }
 
+      # Windows ships Pester 3.4 and the unit tests are written for 5. The runner
+      # image may carry 5 already; it is installed only when it does not.
+      - name: Install Pester 5
+        shell: powershell
+        run: |
+          if (-not (Get-Module -ListAvailable Pester | Where-Object { $_.Version.Major -eq 5 })) {
+              [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+              Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
+              Install-Module Pester -MinimumVersion 5.5 -MaximumVersion 5.99 -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+          Get-Module -ListAvailable Pester | Select-Object Version, ModuleBase | Format-Table -AutoSize
+
+      # -RequirePester: here a missing Pester is a broken build, not a skip.
       - name: Run the suites
         shell: powershell
-        run: .\Tests\Run-All.ps1 -Verbose
+        run: .\Tests\Run-All.ps1 -Verbose -RequirePester

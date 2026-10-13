@@ -1,12 +1,19 @@
-# Runs every verification suite and reports a single pass/fail.
+# Runs every verification suite and the Pester unit tests, and reports a single
+# pass/fail.
 #
 #   .\Tests\Run-All.ps1
-#   .\Tests\Run-All.ps1 -Verbose      also prints each suite's own output
+#   .\Tests\Run-All.ps1 -Verbose          also prints each suite's own output
+#   .\Tests\Run-All.ps1 -RequirePester    fail rather than skip without Pester 5 (CI)
 
 [CmdletBinding()]
 param(
-    [string] $Tool = (Join-Path (Split-Path -Parent $PSScriptRoot) 'Tools\Black Face Fix')
+    [string] $Tool,
+    [switch] $RequirePester
 )
+
+# Resolved here, not as a param default: $PSScriptRoot is not populated in the
+# param block when the script is started with powershell.exe -File.
+if (-not $Tool) { $Tool = Join-Path (Split-Path -Parent $PSScriptRoot) 'Tools\Black Face Fix' }
 
 $ErrorActionPreference = 'Continue'
 $total = 0
@@ -33,7 +40,7 @@ $bad += $syntaxErrors
 $total++
 
 # --- suites ---------------------------------------------------------------
-foreach ($suite in @('Verify-Console.ps1', 'Verify-Gui.ps1', 'Verify-Ba2.ps1')) {
+foreach ($suite in @('Verify-Console.ps1', 'Verify-Gui.ps1', 'Verify-Ba2.ps1', 'Invoke-UnitTests.ps1')) {
     Write-Host ''
     Write-Host ("Running {0}..." -f $suite) -ForegroundColor Cyan
 
@@ -45,7 +52,20 @@ foreach ($suite in @('Verify-Console.ps1', 'Verify-Gui.ps1', 'Verify-Ba2.ps1')) 
     # report at all. It is counted as a suite that did not finish instead.
     $output = @()
     try {
-        $output = @(& (Join-Path $PSScriptRoot $suite) -Tool $Tool *>&1)
+        if ($suite -eq 'Invoke-UnitTests.ps1') {
+            # A process of its own. The suites above have already loaded the
+            # library's classes into this session, and Pester loads them again;
+            # two definitions of BffPlan in one session can refuse to convert one
+            # into the other. A fresh powershell.exe also matches how CI runs it.
+            $unitArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass',
+                          '-File', (Join-Path $PSScriptRoot $suite), '-Tool', $Tool)
+            if ($RequirePester) { $unitArgs += '-RequirePester' }
+            if ($VerbosePreference -ne 'SilentlyContinue') { $unitArgs += '-Verbose' }
+            $output = @(& (Join-Path $PSHOME 'powershell.exe') @unitArgs 2>&1 | ForEach-Object { "$_" })
+        }
+        else {
+            $output = @(& (Join-Path $PSScriptRoot $suite) -Tool $Tool *>&1)
+        }
     }
     catch {
         $output = @("threw: $($_.Exception.Message)")
