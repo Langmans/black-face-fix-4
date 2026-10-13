@@ -1,11 +1,10 @@
 # Discovery.ps1 - finding the textures that are actually face textures.
 #
-# The V3 script used three loose regexes over the whole mods folder. That produced
-# both false positives ('Headgear01_d.dds' in a hair mod matches its head pattern)
-# and silent misses (its Preston/Mayor patterns had an unclosed group, so they threw
-# a regex error that $ErrorActionPreference = 'silentlycontinue' swallowed).
-#
-# Three layers instead, checked in order:
+# A name pattern alone both over- and under-matches: run over a whole mods folder
+# it catches 'Headgear01_d.dds', and no pattern catches the named actors, whose
+# faces are just 'Preston_d.dds' or 'Mayor_s.dds'. So only textures\actors\character
+# is looked at, minus the hair, eyes and FaceGen folders in ExcludePathPatterns,
+# and within that three layers are checked in order:
 #   1. exact paths from Rules\VanillaFaceTextures.psd1, baked out of the game's own
 #      TXST records - the only way to catch Preston_d.dds / Mayor_s.dds / Piper
 #   2. FullScanFolders (FaceDetails, TintMasks) - everything underneath counts
@@ -286,7 +285,7 @@ function Get-BffArchiveCandidate {
                 $t.ArchivePath  = $archive.FullName
                 $t.Slot         = $match.Slot
                 $t.IsTintMask   = ($match.Source -ne 'vanilla texture set' -and $match.Source -ne 'head name')
-            $t.MatchedBy    = $match.Source
+                $t.MatchedBy    = $match.Source
                 $t.Width        = $entry.Width
                 $t.Height       = $entry.Height
                 $t.Format       = $entry.Format
