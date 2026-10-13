@@ -189,6 +189,34 @@ Describe 'Get-BffModSelection' {
     }
 }
 
+Describe 'Get-BffPendingModSelection' {
+    It 'adds the box that is being ticked' {
+        $set = Get-BffPendingModSelection -Item @('A', 'B', 'C') -Checked @('A') -Index 2 -NowChecked $true
+        $set.Keys | Sort-Object | Should -Be @('A', 'C')
+    }
+
+    It 'drops the box that is being unticked' {
+        $set = Get-BffPendingModSelection -Item @('A', 'B') -Checked @('A', 'B') -Index 0 -NowChecked $false
+        $set.Keys | Should -Be @('B')
+    }
+
+    It 'does not count a box twice when it is ticked again' {
+        $set = Get-BffPendingModSelection -Item @('A') -Checked @('A') -Index 0 -NowChecked $true
+        $set.Count | Should -Be 1
+    }
+
+    It 'leaves an empty set, not "no filter", when the last box is unticked' {
+        $set = Get-BffPendingModSelection -Item @('A') -Checked @('A') -Index 0 -NowChecked $false
+        $null -eq $set | Should -BeFalse
+        $set.Count | Should -Be 0
+    }
+
+    It 'ignores empty names among the ticked' {
+        $set = Get-BffPendingModSelection -Item @('A', 'B') -Checked @('', 'A') -Index 1 -NowChecked $true
+        $set.Keys | Sort-Object | Should -Be @('A', 'B')
+    }
+}
+
 Describe 'Get-BffModPickerItem' {
     It 'lists each mod with work once, sorted' {
         $plans = @(

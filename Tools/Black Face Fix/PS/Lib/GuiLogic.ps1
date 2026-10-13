@@ -159,6 +159,35 @@ function Get-BffModSelection {
     return $set
 }
 
+function Get-BffPendingModSelection {
+    <#
+    .SYNOPSIS
+    The selection as it will be once one box in the picker has changed.
+
+    .NOTES
+    A CheckedListBox raises ItemCheck before it changes the box, so its checked
+    items still show the old state. Working the new state out from the change -
+    which box, and which way - lets the grid follow the click at once, instead of
+    deferring the refresh until the list has caught up.
+    #>
+    [CmdletBinding()]
+    param(
+        [string[]] $Item,
+        [string[]] $Checked,
+        [Parameter(Mandatory)] [int] $Index,
+        [Parameter(Mandatory)] [bool] $NowChecked
+    )
+
+    $after = New-Object System.Collections.Generic.List[string]
+    foreach ($c in @($Checked)) { if ($c) { $after.Add($c) } }
+
+    $name = @($Item)[$Index]
+    if ($NowChecked) { if (-not $after.Contains($name)) { $after.Add($name) } }
+    else { [void] $after.Remove($name) }
+
+    return Get-BffModSelection -Item $Item -Checked $after.ToArray()
+}
+
 function Get-BffModPickerItem {
     <#
     .SYNOPSIS

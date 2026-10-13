@@ -15,6 +15,411 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# ==================================================================== actions
+#
+# What each click and tick does. Every action takes the window's context - the
+# object Show-BffGui hangs on $form.Tag, holding the state and the controls - and
+# works through that alone, never through Show-BffGui's own variables. So an
+# action behaves the same whether a click, WinForms' layout code or a test calls
+# it, and whether or not Show-BffGui is still running.
+
+function Get-BffGuiContext {
+    <#
+    .SYNOPSIS
+    The context of the window a control sits on, or $null while it has none yet.
+    #>
+    [CmdletBinding()]
+    param($Control)
+
+    if (-not $Control) { return $null }
+    $owner = $Control.FindForm()
+    if ($owner) { return $owner.Tag }
+    return $null
+}
+
+function Set-BffGuiStatus {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context, [string] $Text)
+
+    $Context.Status.Text = $Text
+    # A long scan would otherwise leave the line showing the step before last.
+    [System.Windows.Forms.Application]::DoEvents()
+}
+
+function Update-BffGuiProfile {
+    <#
+    .SYNOPSIS
+    Loads the profile picked in the box, and shows its sizes and any mismatch with
+    the installed game.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    $state = $Context.State
+    $prof  = Get-BffProfile -Name $Context.ProfileBox.SelectedItem -Root $state.Root
+    $state.Environment.Profile = $prof
+    $Context.ProfileInfo.Text  = Get-BffProfileInfoText -Profile $prof
+    $Context.WarnLabel.Text    = Get-BffProfileWarningText -Profile $prof -F4ee $state.Environment.F4ee
+}
+
+function Get-BffGuiSelection {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    return Get-BffModSelection -Item @($Context.ModList.Items) -Checked @($Context.ModList.CheckedItems)
+}
+
+function Sync-BffGuiArchiveBoxes {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    # Fixing archive content only makes sense once the archives are read at all.
+    $Context.FixArchives.Enabled = $Context.Archives.Checked
+    if (-not $Context.Archives.Checked) { $Context.FixArchives.Checked = $false }
+}
+
+function Update-BffGuiSettings {
+    <#
+    .SYNOPSIS
+    Puts what the checkboxes say into the settings a scan reads.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    Update-BffSettingsFromChoice -Settings $Context.State.Settings -Choice @{
+        OnlyEnabledMods          = $Context.OnlyEnabled.Checked
+        IncludeArchives          = $Context.Archives.Checked
+        FixArchives              = $Context.FixArchives.Checked
+        IncludeFaceCustomization = $Context.FaceCust.Checked
+        ForceVanillaFormats      = $Context.VanillaFormats.Checked
+        InPlace                  = ($Context.OutputBox.SelectedIndex -eq 1)
+    }
+}
+
+function Update-BffGuiModPicker {
+    <#
+    .SYNOPSIS
+    Lists the mods with work to do in the picker, all ticked.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    $list = $Context.ModList
+    # Adding ticked items raises ItemCheck for each; this keeps the handler from
+    # refreshing the grid once per mod.
+    $Context.State.Populating = $true
+    try {
+        $list.BeginUpdate()
+        $list.Items.Clear()
+        foreach ($m in (Get-BffModPickerItem -Plan $Context.State.Plans)) { [void] $list.Items.Add($m, $true) }
+    }
+    finally {
+        $list.EndUpdate()
+        $Context.State.Populating = $false
+    }
+}
+
+function Update-BffGuiGrid {
+    <#
+    .SYNOPSIS
+    Refills the grid from the current plans.
+
+    .PARAMETER Selection
+    The ticked mods to filter by. Read from the picker when left out; passed in by
+    the picker's ItemCheck handler, which runs before the picker has changed.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [object] $Context,
+        [AllowNull()] [hashtable] $Selection
+    )
+
+    if (-not $PSBoundParameters.ContainsKey('Selection')) { $Selection = Get-BffGuiSelection -Context $Context }
+
+    $grid = $Context.Grid
+    $grid.Rows.Clear()
+    $rows = Select-BffGridPlan -Plan $Context.State.Plans -OnlyChanges $Context.OnlyChanges.Checked -Selection $Selection
+
+    $grid.SuspendLayout()
+    foreach ($p in $rows) {
+        $i = $grid.Rows.Add((Get-BffGridRowValue -Plan $p))
+
+        # The image goes onto the cell once the row exists - see
+        # Get-BffGridRowValue for why it cannot travel with the other values.
+        $grid.Rows[$i].Cells['Mark'].Value = New-BffPlanGlyph -Plan $p
+
+        # The tooltip needs the plan, not the formatted row.
+        $grid.Rows[$i].Tag = $p
+        $grid.Rows[$i].DefaultCellStyle.ForeColor = Get-BffRowColor -Action $p.Action
+    }
+    $grid.ResumeLayout()
+
+    # Otherwise the first row comes up highlighted, which reads as "this one is
+    # selected" when nothing has been chosen.
+    $grid.ClearSelection()
+}
+
+function Write-BffGuiReport {
+    <#
+    .SYNOPSIS
+    Writes the same log and CSV a console run writes.
+
+    .NOTES
+    The window has to do this itself: the report functions are called from the
+    console path, so a window that skipped this would still leave a log file
+    behind - holding nothing but the banner.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context, [Parameter(Mandatory)] [object] $Summary)
+
+    $state  = $Context.State
+    $stamp  = Get-Date -Format 'yyyy-MM-dd_HHmmss'
+    $logDir = Join-Path $state.Root 'Logs'
+
+    Clear-BffLog
+    Write-BffBanner
+    Write-BffEnvironmentReport -Environment $state.Environment
+    Write-BffPlanTable -Plan $state.Plans -All
+    Write-BffSummary -Summary $Summary -ArchiveFinding $state.Archives
+
+    $state.LastCsv = Export-BffPlanCsv -Plan $state.Plans -Path (Join-Path $logDir "BlackFaceFix_$stamp.csv")
+    Write-BffLine ('Full per-file detail: {0}' -f $state.LastCsv)
+    $state.LastLog = Save-BffLog -Path (Join-Path $logDir "BlackFaceFix_$stamp.log")
+}
+
+function Invoke-BffGuiScan {
+    <#
+    .SYNOPSIS
+    The Scan button: find the face textures, plan them, fill the picker and the
+    grid, and write the report. Writes no textures.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    $state = $Context.State
+    $bar   = $Context.Progress
+    $line  = $Context.Status
+
+    try {
+        $Context.ScanButton.Enabled = $false
+        $Context.ApplyButton.Enabled = $false
+        Update-BffGuiSettings -Context $Context
+        Update-BffGuiProfile  -Context $Context
+
+        Set-BffGuiStatus -Context $Context -Text 'Scanning for face textures...'
+        $bar.Style = 'Marquee'
+
+        $candidates = @(Get-BffCandidate -Environment $state.Environment -Settings $state.Settings `
+                                         -SlotRules $state.SlotRules -VanillaFaceTextures $state.Vanilla)
+
+        $bar.Style = 'Continuous'
+        $bar.Value = 0
+        Set-BffGuiStatus -Context $Context -Text ('Reading metadata for {0} texture(s)...' -f $candidates.Count)
+
+        if ($candidates.Count -eq 0) {
+            $state.Plans = @()
+            Update-BffGuiGrid -Context $Context
+            Set-BffGuiStatus -Context $Context -Text 'No face textures found. Check the Mod Organizer path and the scope checkboxes.'
+            return
+        }
+
+        $texdiag  = Get-BffTexDiagPath -Root $state.Root -Settings $state.Settings
+        # A closure, so $bar and $line are the ones captured here. Without it they
+        # are looked up along the call stack when the callback runs - and
+        # Update-BffTextureInfo has a $line of its own, a line of texdiag output,
+        # which the callback would find first and fail to set .Text on. Safe as a
+        # closure only because it calls no Bff* function: a closure cannot see the
+        # dot-sourced ones.
+        $textures = @(Update-BffTextureInfo -Texture $candidates -TexDiagPath $texdiag -Progress {
+            param($done, $total)
+            $bar.Maximum = $total
+            $bar.Value   = [Math]::Min($done, $total)
+            $line.Text   = "Reading metadata: $done / $total"
+            [System.Windows.Forms.Application]::DoEvents()
+        }.GetNewClosure())
+
+        $force = $Context.Force.Checked
+        $state.Plans = @(New-BffPlanSet -Texture $textures -Profile $state.Environment.Profile `
+                                        -SlotRules $state.SlotRules -Settings $state.Settings `
+                                        -Environment $state.Environment -Force:$force)
+        if (-not $force) {
+            $state.Plans = @(Update-BffPlanForExistingOutput -Plan $state.Plans -TexDiagPath $texdiag)
+        }
+
+        $state.ArchiveEntries = @{}
+        $state.Archives       = @()
+        if ($Context.Archives.Checked) {
+            Set-BffGuiStatus -Context $Context -Text 'Inspecting BA2 archives...'
+            $archiveAll = @(Get-BffArchiveCandidate -Environment $state.Environment -Settings $state.Settings `
+                                                    -SlotRules $state.SlotRules -VanillaFaceTextures $state.Vanilla |
+                            Where-Object { $_.Texture })
+
+            $sorted = Get-BffArchivePlanSet -Archive $archiveAll -Environment $state.Environment `
+                                            -Settings $state.Settings -SlotRules $state.SlotRules -Force:$force
+            $state.ArchiveEntries = $sorted.Entries
+            if (@($sorted.Plans).Count -gt 0) {
+                $state.Plans = @($state.Plans) + @(Update-BffPlanForExistingOutput -Plan $sorted.Plans -TexDiagPath $texdiag)
+            }
+            # Whatever is not being fixed stays a "look at this" finding.
+            $state.Archives = @($sorted.Findings)
+        }
+
+        Update-BffGuiModPicker -Context $Context
+        Update-BffGuiGrid      -Context $Context
+        $state.Scanned = $true
+
+        $summary = Get-BffPlanSummary -Plan $state.Plans
+        $Context.ApplyButton.Enabled = ($summary.Changing -gt 0)
+
+        Write-BffGuiReport -Context $Context -Summary $summary
+        $bar.Value = $bar.Maximum
+
+        Set-BffGuiStatus -Context $Context -Text (Get-BffScanStatusText -Summary $summary `
+                                                     -ArchiveCount @($state.Archives).Count -CsvPath $state.LastCsv)
+    }
+    catch {
+        & $Context.Tell $_.Exception.Message 'Scan failed' 'Error'
+        Set-BffGuiStatus -Context $Context -Text ('Scan failed: ' + $_.Exception.Message)
+    }
+    finally {
+        $Context.ScanButton.Enabled = $true
+        $bar.Style = 'Continuous'
+    }
+}
+
+function Invoke-BffGuiApply {
+    <#
+    .SYNOPSIS
+    The Apply button: confirm, convert what is ticked, report what happened.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    $state = $Context.State
+    $todo  = @(Select-BffPlanToApply -Plan $state.Plans -Selection (Get-BffGuiSelection -Context $Context))
+    if ($todo.Count -eq 0) {
+        & $Context.Tell 'Nothing is ticked under "Mods to fix", so there is nothing to convert.' 'Nothing to do'
+        return
+    }
+
+    $mode       = $state.Settings.Output.Mode
+    $outputMods = Get-BffOutputModList -Plan $todo
+    if (-not (& $Context.Ask (Get-BffApplyConfirmText -Count $todo.Count -Mode $mode -OutputMod $outputMods) 'Confirm')) {
+        return
+    }
+
+    $bar  = $Context.Progress
+    $line = $Context.Status
+    try {
+        $Context.ApplyButton.Enabled = $false
+        $Context.ScanButton.Enabled  = $false
+        $bar.Value = 0
+
+        # A closure for the same reason as in Invoke-BffGuiScan: variables the
+        # callback finds along the call stack may belong to the converter.
+        $results = @(Invoke-BffPlanSet -Plan $todo -Settings $state.Settings -Root $state.Root `
+                                       -ArchiveEntryByPath $state.ArchiveEntries `
+                                       -ProfileName $state.Environment.Profile.Name -Progress {
+            param($done, $total, $plan)
+            $bar.Maximum = $total
+            $bar.Value   = [Math]::Min($done, $total)
+            $line.Text   = "Converting $done / $total  -  $($plan.Texture.Name)"
+            [System.Windows.Forms.Application]::DoEvents()
+        }.GetNewClosure())
+
+        # Added to the log the scan already wrote, so one file tells the whole run.
+        $good = @($results | Where-Object { $_.Success })
+        $bad  = @($results | Where-Object { -not $_.Success })
+        Write-BffLine ''
+        Write-BffLine ('Converted {0} texture(s).' -f $good.Count)
+        foreach ($b in $bad) {
+            Write-BffLine ('  FAILED {0}: {1}' -f $b.Plan.Texture.FullName, $b.Error)
+            if ($b.Command) { Write-BffLine ('         {0}' -f $b.Command) }
+        }
+        foreach ($r in $good) { Write-BffLine ('  wrote {0}' -f $r.Destination) }
+        if ($state.LastLog) { [void] (Save-BffLog -Path $state.LastLog) }
+
+        $outcome = Get-BffApplyResultText -Result $results -Mode $mode -OutputMod $outputMods
+        & $Context.Tell $outcome.Text 'Done' $(if ($outcome.Failed) { 'Warning' } else { 'Information' })
+        Set-BffGuiStatus -Context $Context -Text ("{0}  Log: {1}" -f $outcome.Text, $state.LastLog)
+    }
+    catch {
+        & $Context.Tell $_.Exception.Message 'Conversion failed' 'Error'
+    }
+    finally {
+        $Context.ScanButton.Enabled = $true
+    }
+}
+
+function Invoke-BffGuiRestore {
+    <#
+    .SYNOPSIS
+    The Restore backups button: put every .backup an in-place run left back.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    $state  = $Context.State
+    $target = Get-BffRestoreTarget -Environment $state.Environment
+    $ask    = "Restore every .backup file under:`n{0}`n`nThis undoes an in-place run." -f $target
+    if (-not (& $Context.Ask $ask 'Restore backups')) { return }
+
+    $restored = @(Restore-BffBackup -Path $target -BackupSuffix $state.Settings.Output.BackupSuffix)
+    $count    = @($restored | Where-Object { $_.Success }).Count
+    Set-BffGuiStatus -Context $Context -Text ('Restored {0} file(s).' -f $count)
+    & $Context.Tell "Restored $count file(s)." 'Restore'
+}
+
+function Open-BffGuiLogFolder {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    $logs = Join-Path $Context.State.Root 'Logs'
+    if (-not (Test-Path -LiteralPath $logs)) { [void] (New-Item -ItemType Directory -Path $logs -Force) }
+    & $Context.OpenFolder $logs
+}
+
+function Select-BffGuiMo2Folder {
+    <#
+    .SYNOPSIS
+    The ... button: point the tool at another Mod Organizer install.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context)
+
+    $path = & $Context.PickFolder 'Pick the Mod Organizer 2 folder (the one holding ModOrganizer.ini)'
+    if (-not $path) { return }
+
+    $state = $Context.State
+    $state.Settings.Paths.MO2 = $path
+    $state.Environment = Get-BffEnvironment -Settings $state.Settings -Root $state.Root `
+                                            -ProfileOverride $Context.ProfileBox.SelectedItem
+    $Context.Mo2Box.Text = if ($state.Environment.MO2) { $state.Environment.MO2.Root } else { '(not found)' }
+    Update-BffGuiProfile -Context $Context
+}
+
+function Set-BffGuiAllMods {
+    <#
+    .SYNOPSIS
+    The All and None buttons under the mod picker.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [object] $Context, [Parameter(Mandatory)] [bool] $Checked)
+
+    $list = $Context.ModList
+    # Each box raises ItemCheck; this keeps the handler from refreshing the grid
+    # once per mod, and the grid is refreshed once at the end instead.
+    $Context.State.Populating = $true
+    try {
+        for ($i = 0; $i -lt $list.Items.Count; $i++) { $list.SetItemChecked($i, $Checked) }
+    }
+    finally { $Context.State.Populating = $false }
+
+    if ($Context.State.Scanned) { Update-BffGuiGrid -Context $Context }
+}
+
+# ===================================================================== window
+
 function Show-BffGui {
     [CmdletBinding()]
     param(
@@ -23,14 +428,12 @@ function Show-BffGui {
         [Parameter(Mandatory)] [object]    $SlotRules,
         [object] $VanillaFaceTextures,
         [string] $Root = (Get-BffRoot),
-        # Builds the window and returns it without showing it, so the layout can be
-        # smoke-tested without a human clicking anything.
+        # Builds the window and returns it without showing it. Its Tag is the
+        # context every action takes, so a test can drive the window from there:
+        # Invoke-BffGuiScan -Context $form.Tag, and so on.
         [switch] $BuildOnly,
-        # With -BuildOnly, also runs the scan before returning. The scan has to be
-        # driven from in here rather than by invoking the handler from outside:
-        # the handlers are plain scriptblocks that resolve their variables through
-        # this function's scope, and PerformClick() is ignored on a control that has
-        # never been visible.
+        # With -BuildOnly, also runs the scan before returning. A shorthand for
+        # calling Invoke-BffGuiScan on the returned window's Tag.
         [switch] $RunScan
     )
 
@@ -145,14 +548,6 @@ function Show-BffGui {
     $chkForce       = New-Check 'Re-encode correct'         510 106 150 $false
     $top.Controls.AddRange(@($chkEnabled, $chkArchives, $chkFixArchives, $chkForce))
 
-    # Fixing archive content only makes sense once the archives are read at all.
-    $syncArchiveBoxes = {
-        $chkFixArchives.Enabled = $chkArchives.Checked
-        if (-not $chkArchives.Checked) { $chkFixArchives.Checked = $false }
-    }
-    $chkArchives.Add_CheckedChanged($syncArchiveBoxes)
-    & $syncArchiveBoxes
-
     $top.Controls.Add((New-Label 'Write to' 680 108 60))
     $outputBox               = New-Object System.Windows.Forms.ComboBox
     $outputBox.Location      = New-Object System.Drawing.Point(742, 105)
@@ -246,8 +641,8 @@ function Show-BffGui {
     $grid.AllowUserToAddRows     = $false
     $grid.AllowUserToDeleteRows  = $false
     # Defaults to $true, which lets a row be dragged to any height. There is
-    # nothing in a row worth more space - the reason moved to the tooltip - and a
-    # row stretched by accident stays that way until the next scan.
+    # nothing in a row worth more space - the reason is in the tooltip - and a row
+    # stretched by accident stays that way until the next scan.
     $grid.AllowUserToResizeRows  = $false
     $grid.SelectionMode          = 'FullRowSelect'
     $grid.AutoSizeColumnsMode    = 'Fill'
@@ -451,313 +846,105 @@ function Show-BffGui {
     $status.Text      = 'Press Scan to see what would change. Nothing is written until you press Apply.'
     $bottom.Controls.Add($status)
 
-    # ---------------------------------------------------------------- helpers
-    # These handlers deliberately do NOT use .GetNewClosure(): a closure gets its own
-    # session state and can no longer resolve the dot-sourced Bff* functions. They
-    # rely on Show-BffGui still being on the stack instead, which is true for the
-    # whole lifetime of ShowDialog. Tests therefore drive the scan through
-    # -BuildOnly -RunScan rather than by invoking the scriptblock from outside.
-    $setStatus = {
-        param([string] $Text)
-        $status.Text = $Text
-        [System.Windows.Forms.Application]::DoEvents()
-    }
+    # ------------------------------------------------------------- the context
+    # Everything the actions need, hung on the window itself. A handler finds it
+    # through the control that raised the event - Get-BffGuiContext $sender - and
+    # never through this function's variables.
+    #
+    # That matters because handlers do not only run while Show-BffGui is on the
+    # stack. WinForms raises some events from its own layout code, and a test
+    # drives the actions after this function has returned. A handler reading a
+    # local of this function finds nothing in either case.
+    #
+    # The four hooks at the bottom are how the actions ask, tell, pick a folder and
+    # open one. A test swaps them for ones that record what was asked and answer on
+    # cue, so it can drive Apply or Restore without a dialog blocking it.
+    $form.Tag = [pscustomobject]@{
+        State          = $state
+        Form           = $form
+        Grid           = $grid
+        Status         = $status
+        Progress       = $progressBar
+        ModList        = $modList
+        ProfileBox     = $profileBox
+        ProfileInfo    = $profileInfo
+        WarnLabel      = $warnLabel
+        Mo2Box         = $mo2Box
+        OnlyEnabled    = $chkEnabled
+        Archives       = $chkArchives
+        FixArchives    = $chkFixArchives
+        Force          = $chkForce
+        OnlyChanges    = $chkOnlyChanges
+        FaceCust       = $chkFaceCust
+        FullPaths      = $chkFullPaths
+        VanillaFormats = $chkVanillaFmt
+        OutputBox      = $outputBox
+        ScanButton     = $scanButton
+        ApplyButton    = $applyButton
 
-    $refreshProfile = {
-        $prof = Get-BffProfile -Name $profileBox.SelectedItem -Root $state.Root
-        $state.Environment.Profile = $prof
-        $profileInfo.Text = Get-BffProfileInfoText -Profile $prof
-        $warnLabel.Text   = Get-BffProfileWarningText -Profile $prof -F4ee $state.Environment.F4ee
-    }
-
-    $selectedMods = {
-        Get-BffModSelection -Item @($modList.Items) -Checked @($modList.CheckedItems)
-    }
-
-    $plansToApply = {
-        Select-BffPlanToApply -Plan $state.Plans -Selection (& $selectedMods)
-    }
-
-    $fillModList = {
-        $state.Populating = $true
-        $modList.BeginUpdate()
-        $modList.Items.Clear()
-        foreach ($m in (Get-BffModPickerItem -Plan $state.Plans)) { [void] $modList.Items.Add($m, $true) }
-        $modList.EndUpdate()
-        $state.Populating = $false
-    }
-
-    $fillGrid = {
-        $grid.Rows.Clear()
-        $rows = Select-BffGridPlan -Plan $state.Plans -OnlyChanges $chkOnlyChanges.Checked -Selection (& $selectedMods)
-
-        $grid.SuspendLayout()
-        foreach ($p in $rows) {
-            $i = $grid.Rows.Add((Get-BffGridRowValue -Plan $p))
-
-            # The image goes onto the cell once the row exists - see
-            # Get-BffGridRowValue for why it cannot travel with the other values.
-            $grid.Rows[$i].Cells['Mark'].Value = New-BffPlanGlyph -Plan $p
-
-            # The tooltip needs the plan, not the formatted row.
-            $grid.Rows[$i].Tag = $p
-            $grid.Rows[$i].DefaultCellStyle.ForeColor = Get-BffRowColor -Action $p.Action
+        Ask = {
+            param([string] $Text, [string] $Title)
+            [System.Windows.Forms.MessageBox]::Show($Text, $Title,
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Question) -eq [System.Windows.Forms.DialogResult]::Yes
         }
-
-        $grid.ResumeLayout()
-        # Otherwise every row comes up highlighted, which reads as "these are
-        # selected" when nothing has been chosen yet.
-        $grid.ClearSelection()
-    }
-
-    $applySettings = {
-        Update-BffSettingsFromChoice -Settings $state.Settings -Choice @{
-            OnlyEnabledMods          = $chkEnabled.Checked
-            IncludeArchives          = $chkArchives.Checked
-            FixArchives              = $chkFixArchives.Checked
-            IncludeFaceCustomization = $chkFaceCust.Checked
-            ForceVanillaFormats      = $chkVanillaFmt.Checked
-            InPlace                  = ($outputBox.SelectedIndex -eq 1)
+        Tell = {
+            param([string] $Text, [string] $Title, [string] $Icon = 'Information')
+            [void] [System.Windows.Forms.MessageBox]::Show($Text, $Title,
+                [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon] $Icon)
+        }
+        PickFolder = {
+            param([string] $Description)
+            $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+            $dialog.Description = $Description
+            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dialog.SelectedPath }
+            return $null
+        }
+        OpenFolder = {
+            param([string] $Path)
+            Start-Process explorer.exe $Path
         }
     }
 
-    # The GUI writes exactly the same log and CSV the console run does. It has to
-    # do so itself: the report functions are called from the console path, so a
-    # window that skipped this would still write a log file - holding nothing but
-    # the banner.
-    $writeReport = {
-        param($Summary)
+    # ----------------------------------------------------------------- events
+    # One line each: find the context, hand it to the action.
+    $scanButton.Add_Click(   { param($s) $c = Get-BffGuiContext $s; if ($c) { Invoke-BffGuiScan       -Context $c } })
+    $applyButton.Add_Click(  { param($s) $c = Get-BffGuiContext $s; if ($c) { Invoke-BffGuiApply      -Context $c } })
+    $restoreButton.Add_Click({ param($s) $c = Get-BffGuiContext $s; if ($c) { Invoke-BffGuiRestore    -Context $c } })
+    $logButton.Add_Click(    { param($s) $c = Get-BffGuiContext $s; if ($c) { Open-BffGuiLogFolder    -Context $c } })
+    $browse.Add_Click(       { param($s) $c = Get-BffGuiContext $s; if ($c) { Select-BffGuiMo2Folder  -Context $c } })
+    $btnAll.Add_Click(       { param($s) $c = Get-BffGuiContext $s; if ($c) { Set-BffGuiAllMods       -Context $c -Checked $true } })
+    $btnNone.Add_Click(      { param($s) $c = Get-BffGuiContext $s; if ($c) { Set-BffGuiAllMods       -Context $c -Checked $false } })
 
-        $stamp  = Get-Date -Format 'yyyy-MM-dd_HHmmss'
-        $logDir = Join-Path $state.Root 'Logs'
-
-        Clear-BffLog
-        Write-BffBanner
-        Write-BffEnvironmentReport -Environment $state.Environment
-        Write-BffPlanTable -Plan $state.Plans -All
-        Write-BffSummary -Summary $Summary -ArchiveFinding $state.Archives
-
-        $state.LastCsv = Export-BffPlanCsv -Plan $state.Plans -Path (Join-Path $logDir "BlackFaceFix_$stamp.csv")
-        Write-BffLine ('Full per-file detail: {0}' -f $state.LastCsv)
-        $state.LastLog = Save-BffLog -Path (Join-Path $logDir "BlackFaceFix_$stamp.log")
-    }
-
-    # ---------------------------------------------------------------- actions
-    # Kept in a variable rather than written inline, so it can also be invoked from
-    # a test without showing the window - Button.PerformClick() is ignored on a
-    # control that has never been visible.
-    $doScan = {
-        try {
-            $scanButton.Enabled = $false; $applyButton.Enabled = $false
-            & $applySettings
-            & $refreshProfile
-
-            & $setStatus 'Scanning for face textures...'
-            $progressBar.Style = 'Marquee'
-
-            $candidates = @(Get-BffCandidate -Environment $state.Environment -Settings $state.Settings `
-                                             -SlotRules $state.SlotRules -VanillaFaceTextures $state.Vanilla)
-
-            $progressBar.Style = 'Continuous'; $progressBar.Value = 0
-            & $setStatus ("Reading metadata for {0} texture(s)..." -f $candidates.Count)
-
-            if ($candidates.Count -eq 0) {
-                $state.Plans = @()
-                & $fillGrid
-                & $setStatus 'No face textures found. Check the Mod Organizer path and the scope checkboxes.'
-                return
-            }
-
-            $textures = @(Update-BffTextureInfo -Texture $candidates -TexDiagPath (Get-BffTexDiagPath -Root $state.Root -Settings $state.Settings) -Progress {
-                param($done, $total)
-                $progressBar.Maximum = $total
-                $progressBar.Value   = [Math]::Min($done, $total)
-                $status.Text      = "Reading metadata: $done / $total"
-                [System.Windows.Forms.Application]::DoEvents()
-            })
-
-            $state.Plans = @(New-BffPlanSet -Texture $textures -Profile $state.Environment.Profile `
-                                            -SlotRules $state.SlotRules -Settings $state.Settings `
-                                            -Environment $state.Environment -Force:$chkForce.Checked)
-            if (-not $chkForce.Checked) {
-                $state.Plans = @(Update-BffPlanForExistingOutput -Plan $state.Plans -TexDiagPath (Get-BffTexDiagPath -Root $state.Root -Settings $state.Settings))
-            }
-
-            $state.ArchiveEntries = @{}
-            if ($chkArchives.Checked) {
-                & $setStatus 'Inspecting BA2 archives...'
-                $archiveAll = @(Get-BffArchiveCandidate -Environment $state.Environment -Settings $state.Settings `
-                                                        -SlotRules $state.SlotRules -VanillaFaceTextures $state.Vanilla |
-                                Where-Object { $_.Texture })
-
-                $sorted = Get-BffArchivePlanSet -Archive $archiveAll -Environment $state.Environment `
-                                                -Settings $state.Settings -SlotRules $state.SlotRules `
-                                                -Force:$chkForce.Checked
-                $state.ArchiveEntries = $sorted.Entries
-
-                if (@($sorted.Plans).Count -gt 0) {
-                    $merged = @(Update-BffPlanForExistingOutput -Plan $sorted.Plans `
-                                                                -TexDiagPath (Get-BffTexDiagPath -Root $state.Root -Settings $state.Settings))
-                    $state.Plans = @($state.Plans) + $merged
-                }
-                # Whatever is not being fixed stays a "look at this" finding.
-                $state.Archives = @($sorted.Findings)
-            }
-            else { $state.Archives = @() }
-
-            & $fillModList
-            & $fillGrid
-            $state.Scanned = $true
-
-            $summary = Get-BffPlanSummary -Plan $state.Plans
-            $applyButton.Enabled = ($summary.Changing -gt 0)
-
-            & $writeReport $summary
-            $progressBar.Value = $progressBar.Maximum
-
-            & $setStatus (Get-BffScanStatusText -Summary $summary -ArchiveCount @($state.Archives).Count `
-                                                -CsvPath $state.LastCsv)
-        }
-        catch {
-            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Scan failed',
-                [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
-            & $setStatus ('Scan failed: ' + $_.Exception.Message)
-        }
-        finally { $scanButton.Enabled = $true; $progressBar.Style = 'Continuous' }
-    }
-    $scanButton.Add_Click($doScan)
-
-    $applyButton.Add_Click({
-        $todo = @(& $plansToApply)
-        if ($todo.Count -eq 0) {
-            [System.Windows.Forms.MessageBox]::Show(
-                'Nothing is ticked under "Mods to fix", so there is nothing to convert.',
-                'Nothing to do', [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
-            return
-        }
-
-        $outputMods = Get-BffOutputModList -Plan $todo
-
-        $answer = [System.Windows.Forms.MessageBox]::Show(
-            (Get-BffApplyConfirmText -Count $todo.Count -Mode $state.Settings.Output.Mode -OutputMod $outputMods),
-            'Confirm', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
-        if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
-
-        try {
-            $applyButton.Enabled = $false; $scanButton.Enabled = $false
-            $progressBar.Value = 0
-
-            $results = Invoke-BffPlanSet -Plan $todo -Settings $state.Settings -Root $state.Root `
-                                         -ArchiveEntryByPath $state.ArchiveEntries `
-                                         -ProfileName $state.Environment.Profile.Name -Progress {
-                param($done, $total, $plan)
-                $progressBar.Maximum = $total
-                $progressBar.Value   = [Math]::Min($done, $total)
-                $status.Text      = "Converting $done / $total  -  $($plan.Texture.Name)"
-                [System.Windows.Forms.Application]::DoEvents()
-            }
-
-            $ok  = @($results | Where-Object Success).Count
-            $bad = @($results | Where-Object { -not $_.Success })
-            $done = Get-BffApplyResultText -Result $results -Mode $state.Settings.Output.Mode -OutputMod $outputMods
-            $message = $done.Text
-
-            # Append what actually happened to the log the scan already wrote.
-            Write-BffLine ''
-            Write-BffLine ('Converted {0} texture(s).' -f $ok)
-            foreach ($b in $bad) {
-                Write-BffLine ('  FAILED {0}: {1}' -f $b.Plan.Texture.FullName, $b.Error)
-                if ($b.Command) { Write-BffLine ('         {0}' -f $b.Command) }
-            }
-            foreach ($r in ($results | Where-Object Success)) {
-                Write-BffLine ('  wrote {0}' -f $r.Destination)
-            }
-            if ($state.LastLog) { [void] (Save-BffLog -Path $state.LastLog) }
-
-            [System.Windows.Forms.MessageBox]::Show($message, 'Done',
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                $(if ($done.Failed) { [System.Windows.Forms.MessageBoxIcon]::Warning } else { [System.Windows.Forms.MessageBoxIcon]::Information })) | Out-Null
-
-            & $setStatus "$message  Log: $($state.LastLog)"
-        }
-        catch {
-            [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Conversion failed',
-                [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Error) | Out-Null
-        }
-        finally { $scanButton.Enabled = $true }
-    })
-
-    $restoreButton.Add_Click({
-        $target = Get-BffRestoreTarget -Environment $state.Environment
-        $answer = [System.Windows.Forms.MessageBox]::Show(
-            ("Restore every .backup file under:`n{0}`n`nThis undoes an in-place run." -f $target),
-            'Restore backups', [System.Windows.Forms.MessageBoxButtons]::YesNo, [System.Windows.Forms.MessageBoxIcon]::Question)
-        if ($answer -ne [System.Windows.Forms.DialogResult]::Yes) { return }
-
-        $restored = Restore-BffBackup -Path $target -BackupSuffix $state.Settings.Output.BackupSuffix
-        $good = @($restored | Where-Object Success).Count
-        & $setStatus ("Restored {0} file(s)." -f $good)
-        [System.Windows.Forms.MessageBox]::Show("Restored $good file(s).", 'Restore',
-            [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
-    })
-
-    $logButton.Add_Click({
-        $logs = Join-Path $state.Root 'Logs'
-        if (-not (Test-Path -LiteralPath $logs)) { [void] (New-Item -ItemType Directory -Path $logs -Force) }
-        Start-Process explorer.exe $logs
-    })
-
-    $browse.Add_Click({
-        $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-        $dialog.Description = 'Pick the Mod Organizer 2 folder (the one holding ModOrganizer.ini)'
-        if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            $state.Settings.Paths.MO2 = $dialog.SelectedPath
-            $state.Environment = Get-BffEnvironment -Settings $state.Settings -Root $state.Root -ProfileOverride $profileBox.SelectedItem
-            $mo2Box.Text = if ($state.Environment.MO2) { $state.Environment.MO2.Root } else { '(not found)' }
-            & $refreshProfile
-        }
-    })
-
-    $profileBox.Add_SelectedIndexChanged({ & $refreshProfile })
-    $chkOnlyChanges.Add_CheckedChanged({ if ($state.Scanned) { & $fillGrid } })
-    $btnAll.Add_Click({
-        for ($i = 0; $i -lt $modList.Items.Count; $i++) { $modList.SetItemChecked($i, $true) }
-        if ($state.Scanned) { & $fillGrid }
-    })
-    $btnNone.Add_Click({
-        for ($i = 0; $i -lt $modList.Items.Count; $i++) { $modList.SetItemChecked($i, $false) }
-        if ($state.Scanned) { & $fillGrid }
-    })
-    # ItemCheck fires before the new state is stored, so the refresh has to be
-    # deferred. Two guards: the event also fires while $fillModList is adding the
-    # items, and BeginInvoke throws until the window handle exists - which is the
-    # case during a -BuildOnly scan and during the very first population.
-    $modList.Add_ItemCheck({
-        if ($state.Populating -or -not $form.IsHandleCreated) { return }
-        [void] $form.BeginInvoke([Action] { if ($state.Scanned) { & $fillGrid } })
-    })
+    $profileBox.Add_SelectedIndexChanged({ param($s) $c = Get-BffGuiContext $s; if ($c) { Update-BffGuiProfile -Context $c } })
+    $chkArchives.Add_CheckedChanged(     { param($s) $c = Get-BffGuiContext $s; if ($c) { Sync-BffGuiArchiveBoxes -Context $c } })
+    $chkOnlyChanges.Add_CheckedChanged(  { param($s) $c = Get-BffGuiContext $s; if ($c -and $c.State.Scanned) { Update-BffGuiGrid -Context $c } })
 
     # The full path is a column of its own, so this only has to show it. Every row
     # already carries the value, which is why nothing needs refilling.
     $chkFullPaths.Add_CheckedChanged({
-        $grid.Columns['FullPath'].Visible = $chkFullPaths.Checked
+        param($s)
+        $c = Get-BffGuiContext $s
+        if ($c) { $c.Grid.Columns['FullPath'].Visible = $s.Checked }
     })
 
-    & $refreshProfile
+    # ItemCheck fires before the box changes, so the list still holds the old
+    # state. The grid is refreshed from the change itself instead - which box, and
+    # which way - rather than deferred until the list catches up.
+    $modList.Add_ItemCheck({
+        param($s, $e)
+        $c = Get-BffGuiContext $s
+        if (-not $c -or $c.State.Populating -or -not $c.State.Scanned) { return }
+        $pending = Get-BffPendingModSelection -Item @($s.Items) -Checked @($s.CheckedItems) `
+                                              -Index $e.Index -NowChecked ($e.NewValue -eq 'Checked')
+        Update-BffGuiGrid -Context $c -Selection $pending
+    })
 
-    # Handles for tests: the scan can then be driven without a visible window.
-    $form.Tag = [pscustomobject]@{
-        State    = $state
-        Scan     = $doScan
-        Grid     = $grid
-        Status   = $status
-        ModList  = $modList
-        Progress = $progressBar
-    }
+    Sync-BffGuiArchiveBoxes -Context $form.Tag
+    Update-BffGuiProfile    -Context $form.Tag
 
     if ($BuildOnly) {
-        if ($RunScan) { & $doScan }
+        if ($RunScan) { Invoke-BffGuiScan -Context $form.Tag }
         return $form
     }
 
