@@ -4,14 +4,13 @@
 # and the rule that fired, because "it got resized" without a why is useless when
 # you are trying to work out which mod broke your face.
 #
-# Two rules the V3 script got wrong:
-#   * a texture that already matches is SKIPPED. V3's filter was
-#     'Height -ne 1024 -or Height -ne 1024 -or Height -ne 512 -or ...', which is
-#     true for every possible value, so nothing was ever skipped and 867 of 1020
-#     already-correct files were re-encoded anyway.
-#   * the target format is derived from the SOURCE format, not from channel
-#     averages. Guessing from averages is what turned every alpha-less BC1 texture
-#     into BC6H_SF16, a floating point HDR format.
+# Two rules everything below follows:
+#   * a texture that already matches is SKIPPED. Every encode of a block
+#     compressed texture loses quality, so a run must only touch what is wrong.
+#   * the target format is derived from the SOURCE format and the slot rules, not
+#     from what the pixels look like. Guessing from channel averages picks
+#     nonsense: an alpha-less BC1 diffuse can come out looking like a candidate
+#     for BC6H_SF16, a floating point HDR format the slot never uses.
 
 function New-BffPlan {
     <#
@@ -357,7 +356,7 @@ function Get-BffOutputModRoot {
 
     $relative = $Plan.Texture.RelativePath
     if ($Plan.Destination.EndsWith($relative, [StringComparison]::OrdinalIgnoreCase)) {
-        return $Plan.Destination.Substring(0, $Plan.Destination.Length - $relative.Length).TrimEnd('')
+        return $Plan.Destination.Substring(0, $Plan.Destination.Length - $relative.Length).TrimEnd('\')
     }
     return (Split-Path -Parent $Plan.Destination)
 }

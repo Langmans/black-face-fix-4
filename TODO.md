@@ -47,13 +47,14 @@ Nothing in this section can be settled by more code - only by loading Fallout 4.
   the reader completely. It cannot prove our picture of vanilla is right - only the
   real archives can - so the real-archive run stays as an extra on a machine that
   has the game.
-- **The engine is tested but not measured.** `Gui.ps1`, `GuiLogic.ps1` and
-  `Icon.ps1` are held to 100% by Pester. The rest of `PS\Lib` - discovery, the
-  planner, the converter, the BA2 reader, the report - is exercised end to end by
-  the `Verify-*` suites, which Pester does not instrument, so nobody knows which
-  lines they miss. Next step: unit tests per file, measured the same way, starting
-  with `Planner.ps1`, where the decisions are. Expect the texconv failure paths in
-  `Convert.ps1` to be the hard part.
+- **Most of the engine is tested but not measured.** `Gui.ps1`, `GuiLogic.ps1`,
+  `Icon.ps1` and `Planner.ps1` are held to 100% by Pester. The rest of `PS\Lib` -
+  discovery, the converter, texdiag parsing, the BA2 reader, the report, config
+  and environment - is exercised end to end by the `Verify-*` suites, which Pester
+  does not instrument, so nobody knows which lines they miss. Next step: unit tests
+  per file, measured the same way. `Discovery.ps1` next (which files count as face
+  textures), then `TexInfo.ps1`. Expect the texconv failure paths in `Convert.ps1`
+  to be the hard part.
 - **`Dialogs.ps1` is only ever mocked.** Every function in it opens something on
   screen - the confirm box, the folder picker, Explorer, the window itself - so no
   test runs it. After a change there, open the window by hand and press Apply,
