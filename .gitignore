@@ -11,5 +11,6 @@ Tools/Black Face Fix/Config/Settings.local.psd1
 # Claude Code's per-machine permissions. The skills next to it are shared and stay.
 .claude/settings.local.json
 
-# Written by every unit test run.
-Tests/coverage.xml
+# Written by every unit test run - by Invoke-UnitTests.ps1 into Tests\, and by a
+# plain "Invoke-Pester -CodeCoverage" into whatever folder it was started from.
+coverage.xml
