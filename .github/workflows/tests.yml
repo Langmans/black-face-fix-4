@@ -22,7 +22,18 @@ jobs:
 
       # Windows PowerShell 5.1, not pwsh: that is what the launchers start and
       # what the tool is written against - classes, WinForms and System.Drawing
-      # on the .NET Framework.
+      # on the .NET Framework. "shell: powershell" runs
+      # C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe today; this step
+      # makes the run fail rather than quietly test something else if a runner
+      # image ever changes that.
+      - name: Check the PowerShell edition
+        shell: powershell
+        run: |
+          "PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition)), CLR $($PSVersionTable.CLRVersion)"
+          if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5) {
+              throw 'Expected Windows PowerShell 5.1 (Desktop edition).'
+          }
+
       - name: Run the suites
         shell: powershell
         run: .\Tests\Run-All.ps1 -Verbose
