@@ -1,0 +1,39 @@
+# Runs every verification suite on a clean Windows machine.
+#
+# Clean is the point: no Fallout 4, no Mod Organizer, no mods. The suites build
+# their own sandbox and paint their own source textures, so a pass here means
+# they really do not depend on anything installed on the machine that wrote them.
+# Verify-Ba2 needs the game's own archives and reports a skip until it has a
+# simulated one - see TODO.md.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      # v5 runs on Node 24; v4 is on Node 20, which the runners have deprecated.
+      - uses: actions/checkout@v5
+
+      # Windows PowerShell 5.1, not pwsh: that is what the launchers start and
+      # what the tool is written against - classes, WinForms and System.Drawing
+      # on the .NET Framework. "shell: powershell" runs
+      # C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe today; this step
+      # makes the run fail rather than quietly test something else if a runner
+      # image ever changes that.
+      - name: Check the PowerShell edition
+        shell: powershell
+        run: |
+          "PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition)), CLR $($PSVersionTable.CLRVersion)"
+          if ($PSVersionTable.PSEdition -ne 'Desktop' -or $PSVersionTable.PSVersion.Major -ne 5) {
+              throw 'Expected Windows PowerShell 5.1 (Desktop edition).'
+          }
+
+      - name: Run the suites
+        shell: powershell
+        run: .\Tests\Run-All.ps1 -Verbose
