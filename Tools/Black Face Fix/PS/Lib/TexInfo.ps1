@@ -1,14 +1,15 @@
 # TexInfo.ps1 - reading texture metadata with texdiag.exe.
 #
-# Two things the V3 script got wrong are fixed here:
+# Two rules for reading it:
 #   * properties are read by NAME, not by line index. Line indexes break the moment
 #     texdiag emits an extra line (cube maps, volume textures, newer builds).
 #   * texdiag is called with many files at once instead of one process per file.
-#     Process startup dominated the old runtime: ~1000 files meant ~1000 spawns.
+#     Process startup dominates otherwise: a thousand files would be a thousand
+#     spawns.
 #
-# The channel-average pass (texdiag analyze) is gone entirely. The source DXGI
-# format already says whether there is alpha, and guessing from averages is what
-# turned every BC1 texture into BC6H_SF16.
+# Only 'texdiag info' is used, never 'texdiag analyze'. The source DXGI format
+# already says whether there is alpha; channel averages say nothing a format
+# decision can rely on.
 
 $script:BffToolPathCache = @{}
 
@@ -188,7 +189,9 @@ function Get-BffTextureInfo {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)] [string[]] $Path,
+        # An empty list is allowed, and returns nothing: a mod list where nothing
+        # needed checking is not an error.
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Path,
         [string] $TexDiagPath = (Get-BffTexDiagPath),
         [int]    $BatchSize   = 40,
         [scriptblock] $Progress
@@ -316,7 +319,10 @@ function Update-BffTextureInfo {
     }
 
     if ($FailedVariable) {
-        Set-Variable -Name $FailedVariable -Value $failed -Scope 1
+        # An array, not the List: in Windows PowerShell @() over a generic List
+        # throws "Argument types do not match", and @() is the first thing a
+        # caller reaches for.
+        Set-Variable -Name $FailedVariable -Value $failed.ToArray() -Scope 1
     }
 
     return $ok
