@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(ls -R \"/c/Modding/MO2/mods/BlackFaceFix V3 Alpha 1\" 2>/dev/null | head -100)"
-    ]
-  }
-}

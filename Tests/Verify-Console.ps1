@@ -7,11 +7,13 @@ param(
     [string] $Tool    = (Join-Path (Split-Path -Parent $PSScriptRoot) 'Tools\Black Face Fix'),
     [string] $Sandbox = (Join-Path $env:TEMP 'BlackFaceFix.Tests\console'),
 
-    # Any real face specular and diffuse are fine as raw material; the test
-    # re-encodes them into every shape it needs. Defaults point at textures the
-    # V3 "Extra Textures" download ships.
-    [string] $SourceSpecular = 'C:\Modding\MO2\mods\Extra Textures for V3 Alpha 1\Textures\actors\Character\GhoulMale\GhoulMaleHead_s.DDS',
-    [string] $SourceDiffuse  = 'C:\Modding\MO2\mods\Extra Textures for V3 Alpha 1\Textures\actors\Character\GhoulMale\GhoulMaleHead_d.DDS'
+    # Raw material for every texture the sandbox needs. Left empty, the test paints
+    # its own: nothing it checks depends on what the pixels look like - only on
+    # size, format and mip count - so it needs neither Fallout 4 nor any mod
+    # installed, and runs the same on a build server. Pass a real face DDS here to
+    # exercise the conversions on genuine content instead.
+    [string] $SourceSpecular = '',
+    [string] $SourceDiffuse  = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,9 +21,9 @@ $texconv = Join-Path $Tool 'MSFT\texconv.exe'
 $texdiag = Join-Path $Tool 'MSFT\texdiag.exe'
 
 foreach ($p in @($SourceSpecular, $SourceDiffuse)) {
-    if (-not (Test-Path -LiteralPath $p)) {
-        throw ("Source texture not found: '$p'. Pass -SourceSpecular and -SourceDiffuse " +
-               "pointing at any face _s and _d DDS on this machine.")
+    if ($p -and -not (Test-Path -LiteralPath $p)) {
+        throw ("Source texture not found: '$p'. Leave -SourceSpecular and -SourceDiffuse " +
+               "empty to have the test paint its own.")
     }
 }
 
@@ -38,10 +40,17 @@ $mods = Join-Path $Sandbox 'MO2\mods'
 $prof = Join-Path $Sandbox 'MO2\profiles\Test'
 New-Item -ItemType Directory -Path $mods, $prof -Force | Out-Null
 
+# The tool recognises a Fallout 4 install by a Data folder inside it, and refuses
+# to start without one. Nothing is read from it here - the game's own data is
+# switched off below - so an empty one stands in for the real game.
+$game = Join-Path $Sandbox 'Game'
+New-Item -ItemType Directory -Path (Join-Path $game 'Data') -Force | Out-Null
+
+# MO2 stores paths in @ByteArray() with every backslash doubled.
 @"
 [General]
 gameName=Fallout 4
-gamePath=@ByteArray(C:\\Steam\\steamapps\\common\\Fallout 4)
+gamePath=@ByteArray($($game.Replace('\', '\\')))
 selected_profile=@ByteArray(Test)
 "@ | Set-Content (Join-Path $Sandbox 'MO2\ModOrganizer.ini')
 
@@ -54,9 +63,29 @@ $hair = Join-Path $mods 'HairMod\textures\actors\character\Hair\Test'
 $dis  = Join-Path $mods 'DisabledMod\textures\actors\character\BaseHumanMale'
 New-Item -ItemType Directory -Path $face, $base, $hair, $dis -Force | Out-Null
 
-# Source material: a real BC5 specular and a BC7 diffuse.
-$srcS = $SourceSpecular
-$srcD = $SourceDiffuse
+# Source material. Painted unless a real texture was passed in: a flat skin tone
+# with some structure on it, so the encodes come out at realistic sizes.
+if (-not $SourceSpecular -or -not $SourceDiffuse) {
+    Add-Type -AssemblyName System.Drawing
+    $painted = Join-Path $Sandbox 'source.png'
+    $bmp = New-Object System.Drawing.Bitmap(256, 256, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+    $gfx.Clear([System.Drawing.Color]::FromArgb(255, 208, 170, 142))
+    # Seeded, so every run builds byte-identical textures.
+    $rand = New-Object System.Random(7)
+    for ($i = 0; $i -lt 900; $i++) {
+        $brush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(
+                     40, $rand.Next(120, 240), $rand.Next(90, 190), $rand.Next(80, 170)))
+        $r = $rand.Next(2, 14)
+        $gfx.FillEllipse($brush, $rand.Next(0, 256), $rand.Next(0, 256), $r, $r)
+        $brush.Dispose()
+    }
+    $gfx.Dispose()
+    $bmp.Save($painted, [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+}
+$srcS = if ($SourceSpecular) { $SourceSpecular } else { $painted }
+$srcD = if ($SourceDiffuse)  { $SourceDiffuse }  else { $painted }
 
 function Make {
     param([string] $Source, [string] $Dest, [int] $W, [int] $H, [string] $Fmt)

@@ -7,6 +7,11 @@ Rebuilt from KLMX's V3 Alpha 1 ([Nexus 21907](https://www.nexusmods.com/fallout4
 The original tool did not resize specular maps at all, and re-encoded correct
 textures on every run.
 
+![The window after a scan: six textures that need work, each with its marks](docs/window.png)
+
+<sub>Rendered from a demo setup with invented mods by `Tests\Build-ReadmeScreenshots.ps1`,
+so it can be regenerated after a UI change.</sub>
+
 ---
 
 ## Requirements
@@ -67,6 +72,8 @@ Hovering the row opens one tooltip with a line per mark - the mark is the bullet
 and the sentence beside it is that mark's share of the reason, followed by the
 source and destination paths.
 
+![The tooltip for one row: a line per mark, then where it comes from and goes to](docs/tooltip.png)
+
 Two of them say what is about to happen, and they compose - a row that is wrong in
 both ways shows both:
 
@@ -85,6 +92,10 @@ The rest are context - facts about the file that no column shows:
 | slate parcel | it lives inside a BA2, so the fix is written out as a loose file |
 | violet layers | a mask or face detail, not a head texture |
 | teal card | matched from the game's own texture set records rather than by name - this is `Preston_d.dds` and Piper's set, which have nothing in their names to go on |
+
+All eight, at the size they appear in the grid:
+
+![Every mark with its meaning](docs/marks.png)
 
 The full reason is still written per file to the CSV in `Logs\`, where it is one
 sentence per row and can be sorted and filtered.

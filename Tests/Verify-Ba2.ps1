@@ -43,7 +43,19 @@ function Skip {
 
 $settings = Import-BffSettings -Root $Tool
 $settings.Paths.MO2 = $MO2Path
-$environment = Get-BffEnvironment -Settings $settings -Root $Tool
+
+# Without the game there is nothing to read, and part of what this suite checks -
+# that the slot rules accept everything Fallout 4 itself ships - cannot be checked
+# against anything else. Skipped and reported as such, rather than failed: a
+# machine without the game is not a broken build.
+try { $environment = Get-BffEnvironment -Settings $settings -Root $Tool }
+catch {
+    Skip 'reading real archives' "no Fallout 4 install found ($($_.Exception.Message))"
+    Write-Host ''
+    Write-Host ("RESULT: {0} passed, {1} failed" -f $pass, $fail)
+    Write-Host ("({0} skipped)" -f $skip) -ForegroundColor DarkYellow
+    return
+}
 $slotRules   = Import-BffSlotRules -Root $Tool
 $vanilla     = Import-BffVanillaFaceTextures -Root $Tool
 $texdiag     = Get-BffTexDiagPath -Root $Tool -Settings $settings

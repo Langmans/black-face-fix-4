@@ -36,13 +36,19 @@ function Find-Control {
     return $null
 }
 
+# The sandbox Verify-Console.ps1 builds, and only that. Falling back to a real MO2
+# install would make the result depend on whatever happens to be installed - and
+# put a real mod list into anything this test draws.
 $sandboxMo2 = Join-Path $Sandbox 'MO2'
-$useSandbox = Test-Path (Join-Path $sandboxMo2 'ModOrganizer.ini')
+if (-not (Test-Path (Join-Path $sandboxMo2 'ModOrganizer.ini'))) {
+    throw ("No sandbox at '$sandboxMo2'. Run Verify-Console.ps1 first - Run-All.ps1 " +
+           "does that - or pass -Sandbox pointing at one.")
+}
 
 $settings = Import-BffSettings -Root $Tool
-$settings.Paths.MO2         = if ($useSandbox) { $sandboxMo2 } else { 'C:\Modding\MO2' }
+$settings.Paths.MO2             = $sandboxMo2
 $settings.Scope.IncludeArchives = $false
-if ($useSandbox) { $settings.Scope.IncludeGameData = $false }
+$settings.Scope.IncludeGameData = $false
 
 Write-Host ("Scanning through: {0}" -f $settings.Paths.MO2)
 
