@@ -1,8 +1,8 @@
 # Ba2.ps1 - reading Bethesda BA2 archives.
 #
-# Why this exists: plenty of face mods ship their textures inside a BA2, and the
-# V3 script only ever looked at loose files. A mod with a 512 specular in an
-# archive stayed broken and the user got no warning at all.
+# Why this exists: plenty of face mods ship their textures inside a BA2. Looking
+# at loose files alone leaves a mod with a 512 specular in an archive broken, with
+# no warning at all.
 #
 # Archives are NEVER repacked. For DX10 archives the width, height and DXGI format
 # sit in the file table itself, so a mismatch can be reported without unpacking a
@@ -213,8 +213,10 @@ function Read-BffBa2Index {
         return [pscustomobject]@{ ArchivePath = $Path; Type = ''; Version = 0; Entries = @(); Error = $_.Exception.Message }
     }
     finally {
+        # The reader closes the stream with it; disposing the stream again is
+        # harmless, and covers a reader that never got made.
         if ($reader) { $reader.Dispose() }
-        elseif ($stream) { $stream.Dispose() }
+        if ($stream) { $stream.Dispose() }
     }
 }
 
@@ -395,8 +397,12 @@ function Expand-BffBa2Texture {
         [Parameter(Mandatory)] [string] $Destination
     )
 
+    # .NET resolves a relative path against the process's folder, which is not the
+    # PowerShell location the caller sees.
+    $Destination = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Destination)
+
     $dir = Split-Path -Parent $Destination
-    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+    if (-not (Test-Path -LiteralPath $dir)) {
         [void] (New-Item -ItemType Directory -Path $dir -Force)
     }
 

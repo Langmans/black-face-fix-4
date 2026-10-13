@@ -48,19 +48,17 @@ Nothing in this section can be settled by more code - only by loading Fallout 4.
 
 ## Testing
 
-- **`Verify-Ba2.ps1` needs the real game.** Without it the suite skips. The fix is a
-  simulated `Fallout4 - Textures1.ba2` built by the test: face textures at the paths,
-  sizes, formats and mip counts measured from the real archives, written by a small
-  BA2 writer for DX10 and GNRL with zlib chunks, in versions 1, 7 and 8. That covers
-  the reader completely. It cannot prove our picture of vanilla is right - only the
-  real archives can - so the real-archive run stays as an extra on a machine that
-  has the game.
-- **Two library files are tested but not measured.** Everything else in
-  `PS\Lib` is held to 100% by Pester. `Ba2.ps1` and `Convert.ps1` are
-  exercised end to end by the `Verify-*` suites, which Pester does not instrument,
-  so nobody knows which lines they miss. Next step: unit tests per file, measured
-  the same way. `Ba2.ps1` wants the simulated archive below first; expect the
-  texconv failure paths in `Convert.ps1` to be the hard part.
+- **`Verify-Ba2.ps1` needs the real game.** Without it the suite skips. The reader
+  is covered without it now - `Ba2.Tests.ps1` runs it to 100% on archives
+  `TestBa2.ps1` writes - so what is left for this suite is our picture of vanilla:
+  that the game's own face textures have the paths, sizes and formats the rules
+  assume. Only the real archives can show that, so it stays a run for a machine
+  with Fallout 4 installed. **Needs Ruben, after reinstalling the game:** run
+  `.\Tests\Verify-Ba2.ps1` once.
+- **`Convert.ps1` is tested but not measured.** Every other file in `PS\Lib` is
+  held to 100% by Pester. The converter is exercised end to end by
+  `Verify-Console.ps1`, which Pester does not instrument, so nobody knows which
+  lines it misses. Expect the texconv failure paths to be the hard part.
 - **`Dialogs.ps1` is only ever mocked.** Every function in it opens something on
   screen - the confirm box, the folder picker, Explorer, the window itself - so no
   test runs it. After a change there, open the window by hand and press Apply,
