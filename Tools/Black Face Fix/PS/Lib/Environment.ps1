@@ -85,7 +85,9 @@ function Get-BffFallout4Path {
     foreach ($c in $candidates) {
         if ([string]::IsNullOrWhiteSpace($c)) { continue }
         $path = $c.TrimEnd('\')
-        if (Test-Path -LiteralPath (Join-Path $path 'Data')) { return $path }
+        # Path.Combine: Join-Path fails outright on a drive that is not there, and
+        # then the candidates after this one are never tried.
+        if (Test-Path -LiteralPath ([System.IO.Path]::Combine($path, 'Data'))) { return $path }
     }
 
     throw 'Could not find the Fallout 4 install folder. Set Paths.Fallout4 in Config\Settings.psd1.'
@@ -113,7 +115,7 @@ function Get-BffMO2Info {
     $iniPath = $null
 
     if (-not [string]::IsNullOrWhiteSpace($Override)) {
-        $candidate = Join-Path $Override.TrimEnd('\') 'ModOrganizer.ini'
+        $candidate = [System.IO.Path]::Combine($Override.TrimEnd('\'), 'ModOrganizer.ini')
         if (Test-Path -LiteralPath $candidate) { $iniPath = $candidate }
         else { Write-Warning "Paths.MO2 is set to '$Override' but there is no ModOrganizer.ini there." }
     }
@@ -159,17 +161,21 @@ function Get-BffMO2Info {
     $settings = if ($ini.ContainsKey('Settings')) { $ini['Settings'] } else { @{} }
 
     # MO2 only writes these when they differ from the defaults under the instance root.
+    #
+    # Path.Combine, not Join-Path: Join-Path fails on a drive that is not there, and
+    # an ini pointing at an unplugged disk has to give paths that simply do not
+    # exist, not no paths at all.
     $baseDir = ConvertFrom-BffMO2Value $settings['base_directory']
     if (-not $baseDir) { $baseDir = $mo2Root }
 
     $modsPath = ConvertFrom-BffMO2Value $settings['mod_directory']
-    if (-not $modsPath) { $modsPath = Join-Path $baseDir 'mods' }
+    if (-not $modsPath) { $modsPath = [System.IO.Path]::Combine($baseDir, 'mods') }
 
     $profilesPath = ConvertFrom-BffMO2Value $settings['profiles_directory']
-    if (-not $profilesPath) { $profilesPath = Join-Path $baseDir 'profiles' }
+    if (-not $profilesPath) { $profilesPath = [System.IO.Path]::Combine($baseDir, 'profiles') }
 
     $overwritePath = ConvertFrom-BffMO2Value $settings['overwrite_directory']
-    if (-not $overwritePath) { $overwritePath = Join-Path $baseDir 'overwrite' }
+    if (-not $overwritePath) { $overwritePath = [System.IO.Path]::Combine($baseDir, 'overwrite') }
 
     return [pscustomobject]@{
         IniPath         = $iniPath
@@ -311,10 +317,14 @@ function Get-BffF4eeConfig {
     $ini      = Read-BffIniFile -Path $winner.Path
     $charGen  = if ($ini.ContainsKey('CharGen')) { $ini['CharGen'] } else { @{} }
 
+    # LooksMenu's own default, kept for a value that is missing or not a number.
+    # Parsed into a scratch variable: TryParse writes 0 into its target when it
+    # fails, which would read as a 0px tint.
     $width  = 1024
     $height = 1024
-    if ($charGen['uTintWidth'])  { [void][int]::TryParse($charGen['uTintWidth'],  [ref] $width) }
-    if ($charGen['uTintHeight']) { [void][int]::TryParse($charGen['uTintHeight'], [ref] $height) }
+    $n = 0
+    if ([int]::TryParse([string] $charGen['uTintWidth'],  [ref] $n)) { $width  = $n }
+    if ([int]::TryParse([string] $charGen['uTintHeight'], [ref] $n)) { $height = $n }
 
     return [pscustomobject]@{
         Path        = $winner.Path

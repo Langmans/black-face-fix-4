@@ -6,7 +6,7 @@
 .\Tests\Run-All.ps1 -RequirePester   # fail rather than skip without Pester 5 (CI uses this)
 ```
 
-434 checks, plus a skipped one on a machine without Fallout 4. Nothing touches your
+533 checks, plus a skipped one on a machine without Fallout 4. Nothing touches your
 real mods: the suites build a throwaway MO2 instance under
 `%TEMP%\BlackFaceFix.Tests\` with a fake `ModOrganizer.ini`, `modlist.txt`, an
 empty stand-in for the game folder and a mod full of deliberately awkward textures.
@@ -32,7 +32,9 @@ Install-Module Pester -MinimumVersion 5.5 -MaximumVersion 5.99 -Scope CurrentUse
 
 | File | Covers | Coverage |
 |------|--------|----------|
+| `Config.Tests.ps1` | 33 tests of loading the settings - defaults filled in per section and per key, `Settings.local.psd1` on top - the profiles, by name or by file name, and the slot rules, plus suffixes and slot resolution. The shipped files are loaded once each; how they are read is tested on small ones in TestDrive. | 100% of `Config.ps1` |
 | `Discovery.Tests.ps1` | 49 tests of which files count as face textures: the three layers in order (the game's own list, the full-scan folders, the head name), what is never one (outside `actors\character`, hair, eyes, FaceGen, bodies, helper maps, FaceCustomization unless asked), and the walk over a small Mod Organizer install built in TestDrive - game data, mods, overwrite, enabled-only, excluded mods, the tool's own output, priorities, progress. BA2 contents with the archive reader mocked. | 100% of `Discovery.ps1` |
+| `Environment.Tests.ps1` | 64 tests of finding the install, on ones built in TestDrive: the ini reader and Mod Organizer's value encoding, the game folder (setting, MO2, registry - mocked), the MO2 instance (setting, walking up, the old `MOInstall.txt`, app data) and the folders its ini moves, including onto a drive that is not plugged in, `modlist.txt`, the HD DLC, which `f4ee.ini` wins, which profile that adds up to, and the warnings when LooksMenu disagrees. | 100% of `Environment.ps1` |
 | `GuiComponents.Tests.ps1` | 65 component tests of the window itself: built for real, then driven the way a user drives it - boxes ticked, a profile picked, buttons pressed through their protected `OnClick`, the row tooltip measured, sized and drawn through `OnCellMouseEnter`, `OnPopup` and `OnDraw`. The scan's data sources and the converter are mocked, and so is `Dialogs.ps1`, the one file that puts a dialog on screen: the tests replace the dialog hooks with recorders, so a run never opens a window on the desktop it runs on. | 100% of `Gui.ps1` |
 | `GuiLogic.Tests.ps1` | 66 tests of what the window decides: the columns and the values in them, which mods are ticked and which rows that leaves, what the checkboxes mean for the settings, the status line and dialog texts, and how archive textures are sorted into fixed and reported. | 100% of `GuiLogic.ps1` |
 | `Planner.Tests.ps1` | 65 tests of what happens to each texture and why, decided against the slot rules the tool ships: the safety rails (no slot rule, no size, not square, below the floor), skip, resize, reformat and both, `-Force`, skin maps keeping their size, BC4 tolerated for masks only, and `ForceVanillaFormats`. Also every reason sentence word for word, where the output goes (output mod, no MO2, in place, archives in place), the 260 character limit, the generated-mod marker, recognising an earlier run's output, and the summary counts. | 100% of `Planner.ps1` |
