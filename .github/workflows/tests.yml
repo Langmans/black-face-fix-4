@@ -1,0 +1,27 @@
+# Runs every verification suite on a clean Windows machine.
+#
+# Clean is the point: no Fallout 4, no Mod Organizer, no mods. The suites build
+# their own sandbox and paint their own source textures, so a pass here means
+# they really do not depend on anything installed on the machine that wrote them.
+# Verify-Ba2 needs the game's own archives and reports a skip until it has a
+# simulated one - see TODO.md.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Windows PowerShell 5.1, not pwsh: that is what the launchers start and
+      # what the tool is written against - classes, WinForms and System.Drawing
+      # on the .NET Framework.
+      - name: Run the suites
+        shell: powershell
+        run: .\Tests\Run-All.ps1 -Verbose
