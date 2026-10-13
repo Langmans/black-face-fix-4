@@ -431,10 +431,19 @@ function Show-BffGui {
         # Builds the window and returns it without showing it. Its Tag is the
         # context every action takes, so a test can drive the window from there:
         # Invoke-BffGuiScan -Context $form.Tag, and so on.
+        #
+        # A window nobody can see must not open dialogs either: one would appear on
+        # whatever desktop runs the test and hold the run until someone clicks it,
+        # and on a build server nobody will. So with -BuildOnly the dialog hooks
+        # are silent - questions are answered no, messages go to the log.
         [switch] $BuildOnly,
         # With -BuildOnly, also runs the scan before returning. A shorthand for
         # calling Invoke-BffGuiScan on the returned window's Tag.
-        [switch] $RunScan
+        [switch] $RunScan,
+        # Replaces any of the dialog hooks - Ask, Tell, PickFolder, OpenFolder -
+        # before anything runs, -RunScan included. For tests that want to record
+        # what was asked, or to answer yes.
+        [hashtable] $Hooks
     )
 
     [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -857,8 +866,47 @@ function Show-BffGui {
     # local of this function finds nothing in either case.
     #
     # The four hooks at the bottom are how the actions ask, tell, pick a folder and
-    # open one. A test swaps them for ones that record what was asked and answer on
-    # cue, so it can drive Apply or Restore without a dialog blocking it.
+    # open one. Shown, they are the real dialogs; built with -BuildOnly they are
+    # silent; and -Hooks replaces any of them.
+    $dialogs = if ($BuildOnly) {
+        @{
+            Ask        = { param([string] $Text, [string] $Title) $false }
+            Tell       = {
+                param([string] $Text, [string] $Title, [string] $Icon = 'Information')
+                Write-BffLine ('[{0}] {1}: {2}' -f $Icon, $Title, $Text)
+            }
+            PickFolder = { param([string] $Description) $null }
+            OpenFolder = { param([string] $Path) }
+        }
+    }
+    else {
+        @{
+            Ask = {
+                param([string] $Text, [string] $Title)
+                [System.Windows.Forms.MessageBox]::Show($Text, $Title,
+                    [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                    [System.Windows.Forms.MessageBoxIcon]::Question) -eq [System.Windows.Forms.DialogResult]::Yes
+            }
+            Tell = {
+                param([string] $Text, [string] $Title, [string] $Icon = 'Information')
+                [void] [System.Windows.Forms.MessageBox]::Show($Text, $Title,
+                    [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon] $Icon)
+            }
+            PickFolder = {
+                param([string] $Description)
+                $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+                $dialog.Description = $Description
+                if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dialog.SelectedPath }
+                return $null
+            }
+            OpenFolder = {
+                param([string] $Path)
+                Start-Process explorer.exe $Path
+            }
+        }
+    }
+    if ($Hooks) { foreach ($k in $Hooks.Keys) { $dialogs[$k] = $Hooks[$k] } }
+
     $form.Tag = [pscustomobject]@{
         State          = $state
         Form           = $form
@@ -882,28 +930,10 @@ function Show-BffGui {
         ScanButton     = $scanButton
         ApplyButton    = $applyButton
 
-        Ask = {
-            param([string] $Text, [string] $Title)
-            [System.Windows.Forms.MessageBox]::Show($Text, $Title,
-                [System.Windows.Forms.MessageBoxButtons]::YesNo,
-                [System.Windows.Forms.MessageBoxIcon]::Question) -eq [System.Windows.Forms.DialogResult]::Yes
-        }
-        Tell = {
-            param([string] $Text, [string] $Title, [string] $Icon = 'Information')
-            [void] [System.Windows.Forms.MessageBox]::Show($Text, $Title,
-                [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon] $Icon)
-        }
-        PickFolder = {
-            param([string] $Description)
-            $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-            $dialog.Description = $Description
-            if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dialog.SelectedPath }
-            return $null
-        }
-        OpenFolder = {
-            param([string] $Path)
-            Start-Process explorer.exe $Path
-        }
+        Ask            = $dialogs.Ask
+        Tell           = $dialogs.Tell
+        PickFolder     = $dialogs.PickFolder
+        OpenFolder     = $dialogs.OpenFolder
     }
 
     # ----------------------------------------------------------------- events
