@@ -261,8 +261,12 @@ function Save-BffLog {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $Path)
 
+    # .NET resolves a relative path against the process's folder, which is not the
+    # PowerShell location the caller sees.
+    $Path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+
     $dir = Split-Path -Parent $Path
-    if ($dir -and -not (Test-Path -LiteralPath $dir)) { [void] (New-Item -ItemType Directory -Path $dir -Force) }
+    if (-not (Test-Path -LiteralPath $dir)) { [void] (New-Item -ItemType Directory -Path $dir -Force) }
 
     [System.IO.File]::WriteAllLines($Path, $script:BffLogLines, (New-Object System.Text.UTF8Encoding($false)))
     return $Path

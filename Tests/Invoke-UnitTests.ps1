@@ -23,7 +23,7 @@ if (-not $Tool) { $Tool = Join-Path (Split-Path -Parent $here) 'Tools\Black Face
 
 # Held to 100%. Paths relative to PS\Lib.
 $FullyCovered = @('Config.ps1', 'Discovery.ps1', 'Environment.ps1', 'Gui.ps1', 'GuiLogic.ps1', 'Icon.ps1',
-                  'Planner.ps1', 'TexInfo.ps1')
+                  'Planner.ps1', 'Report.ps1', 'TexInfo.ps1')
 
 # Pester 3.4 ships with Windows and is on the module path too, so the version is
 # pinned: these tests are written for 5 and 5 alone.

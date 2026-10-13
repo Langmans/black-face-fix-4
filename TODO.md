@@ -55,8 +55,8 @@ Nothing in this section can be settled by more code - only by loading Fallout 4.
   the reader completely. It cannot prove our picture of vanilla is right - only the
   real archives can - so the real-archive run stays as an extra on a machine that
   has the game.
-- **Three library files are tested but not measured.** Everything else in
-  `PS\Lib` is held to 100% by Pester. `Report.ps1`, `Ba2.ps1` and `Convert.ps1` are
+- **Two library files are tested but not measured.** Everything else in
+  `PS\Lib` is held to 100% by Pester. `Ba2.ps1` and `Convert.ps1` are
   exercised end to end by the `Verify-*` suites, which Pester does not instrument,
   so nobody knows which lines they miss. Next step: unit tests per file, measured
   the same way. `Ba2.ps1` wants the simulated archive below first; expect the
