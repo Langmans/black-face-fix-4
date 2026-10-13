@@ -22,7 +22,7 @@ $here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvoca
 if (-not $Tool) { $Tool = Join-Path (Split-Path -Parent $here) 'Tools\Black Face Fix' }
 
 # Held to 100%. Paths relative to PS\Lib.
-$FullyCovered = @('GuiLogic.ps1', 'Icon.ps1')
+$FullyCovered = @('Gui.ps1', 'GuiLogic.ps1', 'Icon.ps1')
 
 # Pester 3.4 ships with Windows and is on the module path too, so the version is
 # pinned: these tests are written for 5 and 5 alone.

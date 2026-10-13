@@ -8,9 +8,9 @@
 # WinForms is Windows-only, which is fine here - so are Fallout 4, Mod Organizer
 # and texconv.
 #
-# What the window decides lives in GuiLogic.ps1, which has to be loaded first.
-# This file builds the controls, wires the events, and moves values between the
-# controls and those functions.
+# What the window decides lives in GuiLogic.ps1, and every dialog it opens lives
+# in Dialogs.ps1; both have to be loaded first. This file builds the controls,
+# wires the events, and moves values between the controls and those functions.
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -720,15 +720,13 @@ function Show-BffGui {
     $rowTip.ReshowDelay  = 80
     $rowTip.AutoPopDelay = 30000
 
-    # Everything these three handlers need is hung on the controls themselves and
-    # reached through $sender, and NOT read out of this function's variables.
-    #
-    # The other handlers in this file get away with that because they only ever run
-    # from a click, with Show-BffGui still on the stack at ShowDialog. CellMouseEnter
-    # does not: WinForms raises it from its own layout code - handle creation calls
-    # AdjustFillingColumns, which calls UpdateMouseEnteredCell - and there the
-    # function is gone, so a local resolves to nothing and the handler dies inside
-    # a window that has not finished opening yet.
+    # Everything these handlers need is hung on the controls themselves and reached
+    # through $sender, and NOT read out of this function's variables - the same
+    # rule as the context below, for the same reason. CellMouseEnter is where it
+    # bites first: WinForms raises it from its own layout code - handle creation
+    # calls AdjustFillingColumns, which calls UpdateMouseEnteredCell - and there
+    # this function is gone, so a local resolves to nothing and the handler dies
+    # inside a window that has not finished opening yet.
     $tipState = [pscustomobject]@{
         Tip    = $rowTip
         Lines  = New-Object System.Collections.Generic.List[object]
@@ -880,29 +878,15 @@ function Show-BffGui {
         }
     }
     else {
+        # The real dialogs, in Dialogs.ps1.
         @{
-            Ask = {
-                param([string] $Text, [string] $Title)
-                [System.Windows.Forms.MessageBox]::Show($Text, $Title,
-                    [System.Windows.Forms.MessageBoxButtons]::YesNo,
-                    [System.Windows.Forms.MessageBoxIcon]::Question) -eq [System.Windows.Forms.DialogResult]::Yes
-            }
-            Tell = {
+            Ask        = { param([string] $Text, [string] $Title) Show-BffQuestion -Text $Text -Title $Title }
+            Tell       = {
                 param([string] $Text, [string] $Title, [string] $Icon = 'Information')
-                [void] [System.Windows.Forms.MessageBox]::Show($Text, $Title,
-                    [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon] $Icon)
+                Show-BffMessage -Text $Text -Title $Title -Icon $Icon
             }
-            PickFolder = {
-                param([string] $Description)
-                $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-                $dialog.Description = $Description
-                if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dialog.SelectedPath }
-                return $null
-            }
-            OpenFolder = {
-                param([string] $Path)
-                Start-Process explorer.exe $Path
-            }
+            PickFolder = { param([string] $Description) Select-BffFolder -Description $Description }
+            OpenFolder = { param([string] $Path) Open-BffFolder -Path $Path }
         }
     }
     if ($Hooks) { foreach ($k in $Hooks.Keys) { $dialogs[$k] = $Hooks[$k] } }
@@ -978,6 +962,5 @@ function Show-BffGui {
         return $form
     }
 
-    [void] $form.ShowDialog()
-    $form.Dispose()
+    Show-BffWindow -Form $form
 }

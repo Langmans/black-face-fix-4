@@ -7,9 +7,13 @@
 
 [CmdletBinding()]
 param(
-    [string] $Tool = (Join-Path (Split-Path -Parent $PSScriptRoot) 'Tools\Black Face Fix'),
+    [string] $Tool,
     [switch] $RequirePester
 )
+
+# Resolved here, not as a param default: $PSScriptRoot is not populated in the
+# param block when the script is started with powershell.exe -File.
+if (-not $Tool) { $Tool = Join-Path (Split-Path -Parent $PSScriptRoot) 'Tools\Black Face Fix' }
 
 $ErrorActionPreference = 'Continue'
 $total = 0

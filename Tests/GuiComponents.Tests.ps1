@@ -18,7 +18,7 @@
 BeforeAll {
     $tool = Join-Path (Split-Path -Parent $PSScriptRoot) 'Tools\Black Face Fix'
     foreach ($f in 'Types', 'Config', 'Environment', 'TexInfo', 'Ba2', 'Discovery', 'Planner',
-                   'Convert', 'Report', 'Icon', 'GuiLogic', 'Gui') {
+                   'Convert', 'Report', 'Icon', 'GuiLogic', 'Dialogs', 'Gui') {
         . (Join-Path $tool "PS\Lib\$f.ps1")
     }
 
@@ -434,6 +434,64 @@ Describe 'the row tooltip' {
         Invoke-ControlEvent $c.Grid 'OnCellMouseEnter' (New-Object System.Windows.Forms.DataGridViewCellEventArgs(0, 0))
         $tip.Lines.Count | Should -Be 0
     }
+
+    It 'opens at the size it measured' {
+        Invoke-ControlEvent $c.Grid 'OnCellMouseEnter' (New-Object System.Windows.Forms.DataGridViewCellEventArgs(0, 0))
+        $ev = New-Object System.Windows.Forms.PopupEventArgs($c.Grid, $c.Grid, $false, (New-Object System.Drawing.Size(1, 1)))
+        Invoke-ControlEvent $tip.Tip 'OnPopup' @($ev)
+        $ev.ToolTipSize.Width  | Should -Be $tip.Width
+        $ev.ToolTipSize.Height | Should -Be $tip.Height
+    }
+
+    It 'draws each mark as the bullet of its line' {
+        Invoke-ControlEvent $c.Grid 'OnCellMouseEnter' (New-Object System.Windows.Forms.DataGridViewCellEventArgs(0, 0))
+        $bmp = New-Object System.Drawing.Bitmap($tip.Width, $tip.Height)
+        $g   = [System.Drawing.Graphics]::FromImage($bmp)
+        try {
+            $g.Clear([System.Drawing.Color]::White)
+            $ev = New-Object System.Windows.Forms.DrawToolTipEventArgs(
+                      $g, $c.Grid, $c.Grid, (New-Object System.Drawing.Rectangle(0, 0, $tip.Width, $tip.Height)),
+                      ' ', [System.Drawing.Color]::White, [System.Drawing.Color]::Black, $tip.Font)
+            Invoke-ControlEvent $tip.Tip 'OnDraw' @($ev)
+
+            # Somewhere in the first line's bullet, the mark left a colour that is
+            # neither the background nor the border.
+            $inked = $false
+            for ($x = $tip.Pad; $x -lt $tip.Pad + 16; $x++) {
+                for ($y = $tip.Pad + 1; $y -lt $tip.Pad + 17; $y++) {
+                    $px = $bmp.GetPixel($x, $y)
+                    if ($px.R -ne $px.G -or $px.G -ne $px.B) { $inked = $true }
+                }
+            }
+            $inked | Should -BeTrue
+        }
+        finally { $g.Dispose(); $bmp.Dispose() }
+    }
+
+    It 'neither sizes nor draws itself once it has lost its state' {
+        $tip.Tip.Tag = $null
+        $ev = New-Object System.Windows.Forms.PopupEventArgs($c.Grid, $c.Grid, $false, (New-Object System.Drawing.Size(7, 7)))
+        Invoke-ControlEvent $tip.Tip 'OnPopup' @($ev)
+        $ev.ToolTipSize.Width | Should -Be 7
+
+        $bmp = New-Object System.Drawing.Bitmap(20, 20)
+        $g   = [System.Drawing.Graphics]::FromImage($bmp)
+        try {
+            $ev = New-Object System.Windows.Forms.DrawToolTipEventArgs(
+                      $g, $c.Grid, $c.Grid, (New-Object System.Drawing.Rectangle(0, 0, 20, 20)),
+                      ' ', [System.Drawing.Color]::White, [System.Drawing.Color]::Black, $tip.Font)
+            { Invoke-ControlEvent $tip.Tip 'OnDraw' @($ev) } | Should -Not -Throw
+        }
+        finally { $g.Dispose(); $bmp.Dispose() }
+    }
+
+    It 'stays quiet on a grid that has lost its state' {
+        $c.Grid.Tag = $null
+        { Invoke-ControlEvent $c.Grid 'OnCellMouseEnter' (New-Object System.Windows.Forms.DataGridViewCellEventArgs(0, 0)) } |
+            Should -Not -Throw
+        { Invoke-ControlEvent $c.Grid 'OnMouseLeave' } | Should -Not -Throw
+        $tip.Row | Should -Be -1
+    }
 }
 
 Describe 'applying' {
@@ -609,4 +667,100 @@ Describe 'a window nobody can see' {
     }
 }
 
+Describe 'a window opened for real' {
+    # Without -BuildOnly, the way the launcher opens it. Show-BffWindow is where it
+    # would stop and wait for a person, so it is replaced, and keeps the window for
+    # the test instead of showing it.
+    BeforeEach {
+        $script:shown = $null
+        Mock Show-BffWindow { $script:shown = $Form }
+        Mock Get-BffRoot { $tool }
+    }
+    AfterEach { if ($script:shown) { $script:shown.Dispose() } }
+
+    It 'finds its own folder when it is not given one, and hands itself to Windows' {
+        Show-BffGui -Settings (Import-BffSettings -Root $tool) -Environment (New-TestEnvironment) `
+                    -SlotRules (Import-BffSlotRules -Root $tool)
+        Should -Invoke Get-BffRoot -Times 1 -Exactly
+        Should -Invoke Show-BffWindow -Times 1 -Exactly
+        $script:shown.Tag.State.Root | Should -Be $tool
+    }
+
+    It 'asks, tells, picks a folder and opens one through the real dialogs' {
+        Mock Show-BffQuestion { $true }
+        Mock Show-BffMessage { }
+        Mock Select-BffFolder { 'D:\Picked' }
+        Mock Open-BffFolder { }
+        Show-BffGui -Settings (Import-BffSettings -Root $tool) -Environment (New-TestEnvironment) `
+                    -SlotRules (Import-BffSlotRules -Root $tool) -Root $tool
+        $c = $script:shown.Tag
+
+        & $c.Ask 'Sure?' 'Confirm' | Should -BeTrue
+        & $c.Tell 'Careful' 'Heads up' 'Warning'
+        & $c.PickFolder 'Pick one' | Should -Be 'D:\Picked'
+        & $c.OpenFolder 'C:\Somewhere'
+
+        Should -Invoke Show-BffQuestion -Times 1 -Exactly -ParameterFilter { $Text -eq 'Sure?' -and $Title -eq 'Confirm' }
+        Should -Invoke Show-BffMessage  -Times 1 -Exactly -ParameterFilter { $Title -eq 'Heads up' -and $Icon -eq 'Warning' }
+        Should -Invoke Select-BffFolder -Times 1 -Exactly -ParameterFilter { $Description -eq 'Pick one' }
+        Should -Invoke Open-BffFolder   -Times 1 -Exactly -ParameterFilter { $Path -eq 'C:\Somewhere' }
+    }
+}
+
+Describe 'a window built for another set-up' {
+    AfterEach { $f.Dispose() }
+
+    It 'says so when there is no Mod Organizer' {
+        $environment = New-TestEnvironment
+        $environment.MO2 = $null
+        $f = Show-BffGui -Settings (Import-BffSettings -Root $tool) -Environment $environment `
+                         -SlotRules (Import-BffSlotRules -Root $tool) -Root $tool -BuildOnly
+        $f.Tag.Mo2Box.Text | Should -Be '(not found)'
+    }
+
+    It 'starts on "in place" when the settings write in place' {
+        $settings = Import-BffSettings -Root $tool
+        $settings.Output.Mode = 'InPlace'
+        $f = Show-BffGui -Settings $settings -Environment (New-TestEnvironment) `
+                         -SlotRules (Import-BffSlotRules -Root $tool) -Root $tool -BuildOnly
+        $f.Tag.OutputBox.SelectedIndex | Should -Be 1
+    }
+}
+
+}
+
+# Outside the block above, which replaces Write-BffGuiReport for every scan.
+Describe 'the report a scan writes' {
+    BeforeEach {
+        $f = Show-BffGui -Settings (Import-BffSettings -Root $tool) -Environment (New-TestEnvironment) `
+                         -SlotRules (Import-BffSlotRules -Root $tool) -Root $tool -BuildOnly
+        $c = $f.Tag
+        $c.State.Plans = New-TestPlanSet
+
+        # The report functions themselves are Report.ps1's to test; here only what
+        # the window asks of them, and where it puts the files.
+        Mock Clear-BffLog { }
+        Mock Write-BffBanner { }
+        Mock Write-BffEnvironmentReport { }
+        Mock Write-BffPlanTable { }
+        Mock Write-BffSummary { }
+        Mock Write-BffLine { }
+        Mock Export-BffPlanCsv { $Path }
+        Mock Save-BffLog { $Path }
+    }
+    AfterEach { $f.Dispose() }
+
+    It 'writes a log and a CSV under Logs, named for when it ran' {
+        Write-BffGuiReport -Context $c -Summary (Get-BffPlanSummary -Plan $c.State.Plans)
+        $logs = [regex]::Escape((Join-Path $tool 'Logs'))
+        $c.State.LastCsv | Should -Match ('^' + $logs + '\\BlackFaceFix_\d{4}-\d\d-\d\d_\d{6}\.csv$')
+        $c.State.LastLog | Should -Match ('^' + $logs + '\\BlackFaceFix_\d{4}-\d\d-\d\d_\d{6}\.log$')
+    }
+
+    It 'starts the log afresh and lists every plan, not only the ones that change' {
+        Write-BffGuiReport -Context $c -Summary (Get-BffPlanSummary -Plan $c.State.Plans)
+        Should -Invoke Clear-BffLog -Times 1 -Exactly
+        Should -Invoke Write-BffPlanTable -Times 1 -Exactly -ParameterFilter { $All -and @($Plan).Count -eq 5 }
+        Should -Invoke Write-BffLine -Times 1 -Exactly -ParameterFilter { $Message -like 'Full per-file detail: *.csv' }
+    }
 }
