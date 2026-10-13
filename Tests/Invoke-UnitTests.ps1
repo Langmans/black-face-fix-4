@@ -4,9 +4,8 @@
 #   .\Tests\Invoke-UnitTests.ps1
 #   .\Tests\Invoke-UnitTests.ps1 -RequirePester     fail rather than skip without Pester 5
 #
-# Coverage is a check, not a statistic: every file in $FullyCovered has to stay at
-# 100%. A file goes on that list once its tests reach 100%, and from then on a
-# change that adds an untested line fails the run, naming the line.
+# Coverage is a check, not a statistic: every library file has to stay at 100%,
+# and a change that adds an untested line fails the run, naming the line.
 
 [CmdletBinding()]
 param(
@@ -21,9 +20,12 @@ $ErrorActionPreference = 'Stop'
 $here = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 if (-not $Tool) { $Tool = Join-Path (Split-Path -Parent $here) 'Tools\Black Face Fix' }
 
-# Held to 100%. Paths relative to PS\Lib.
-$FullyCovered = @('Ba2.ps1', 'Config.ps1', 'Discovery.ps1', 'Environment.ps1', 'Gui.ps1', 'GuiLogic.ps1', 'Icon.ps1',
-                  'Planner.ps1', 'Report.ps1', 'TexInfo.ps1')
+# Held to 100%: every file in PS\Lib, so a new one cannot arrive without tests.
+# The one exception is Dialogs.ps1, where every line waits for a person; it is
+# kept to one Windows call per function and mocked by the tests instead.
+$NotCovered   = @('Dialogs.ps1')
+$FullyCovered = @(Get-ChildItem -LiteralPath (Join-Path $Tool 'PS\Lib') -Filter '*.ps1' -File |
+                  Where-Object { $NotCovered -notcontains $_.Name } | Sort-Object Name | ForEach-Object Name)
 
 # Pester 3.4 ships with Windows and is on the module path too, so the version is
 # pinned: these tests are written for 5 and 5 alone.

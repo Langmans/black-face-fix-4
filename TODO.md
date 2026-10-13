@@ -55,10 +55,6 @@ Nothing in this section can be settled by more code - only by loading Fallout 4.
   assume. Only the real archives can show that, so it stays a run for a machine
   with Fallout 4 installed. **Needs Ruben, after reinstalling the game:** run
   `.\Tests\Verify-Ba2.ps1` once.
-- **`Convert.ps1` is tested but not measured.** Every other file in `PS\Lib` is
-  held to 100% by Pester. The converter is exercised end to end by
-  `Verify-Console.ps1`, which Pester does not instrument, so nobody knows which
-  lines it misses. Expect the texconv failure paths to be the hard part.
 - **`Dialogs.ps1` is only ever mocked.** Every function in it opens something on
   screen - the confirm box, the folder picker, Explorer, the window itself - so no
   test runs it. After a change there, open the window by hand and press Apply,

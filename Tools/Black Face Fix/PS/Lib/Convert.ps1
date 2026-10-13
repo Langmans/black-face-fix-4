@@ -1,10 +1,10 @@
 # Convert.ps1 - running texconv and putting the result somewhere safe.
 #
-# Differences from V3, which did DDS -> TGA -> delete the original -> re-encode:
-#   * texconv reads and writes DDS directly, so the lossy TGA round trip is gone.
-#   * nothing is deleted before the replacement exists and has been verified with
-#     texdiag. V3 removed the source between the two texconv calls, so a failure
-#     there lost the texture outright.
+# Three rules:
+#   * texconv reads and writes DDS directly; nothing goes through an intermediate
+#     lossy format such as TGA.
+#   * nothing is deleted or overwritten before the replacement exists and has been
+#     verified with texdiag, so a failed conversion never costs the texture.
 #   * in OutputMod mode the source is not touched at all.
 
 function New-BffWorkspace {
