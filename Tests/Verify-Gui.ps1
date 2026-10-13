@@ -219,19 +219,30 @@ if ($handles) {
 
     # The progress bar and the status line have to grow with the window. Built at
     # a fixed width they stop halfway across a maximised window, and the status
-    # line - which carries the path to the report - gets cut off mid-path. Widening
-    # the form here is what proves the anchors are doing it, rather than reading
-    # the Anchor property back and trusting it.
+    # line - which carries the path to the report - gets cut off mid-path.
+    #
+    # Proven by widening the panel they sit in and watching them follow, rather
+    # than by reading the Anchor property back and trusting it. The panel, not the
+    # form: Windows clamps a form to the screen, so on a build server with a small
+    # virtual display "make the window 400px wider" is silently ignored and the
+    # check would measure nothing. A panel is not clamped, and it is what the
+    # anchor is relative to anyway.
+    #
+    # The panel is docked, and docking puts a width straight back, so it is
+    # undocked for the measurement and docked again after.
+    $panel   = $handles.Progress.Parent
+    $wasDock = $panel.Dock
     $wasWide = $handles.Progress.Width
     $wasText = $handles.Status.Width
-    $form.Width = $form.Width + 400
-    $form.PerformLayout()
-    Check 'progress bar grows with the window' ($handles.Progress.Width -gt $wasWide) `
-        ("{0} -> {1}" -f $wasWide, $handles.Progress.Width)
-    Check 'status line grows with the window' ($handles.Status.Width -gt $wasText) `
-        ("{0} -> {1}" -f $wasText, $handles.Status.Width)
-    $form.Width = $form.Width - 400
-    $form.PerformLayout()
+    $wasPane = $panel.Width
+    $panel.Dock  = 'None'
+    $panel.Width = $wasPane + 400
+    Check 'progress bar grows with its panel' ($handles.Progress.Width -gt $wasWide) `
+        ("bar {0} -> {1}, panel {2} -> {3}" -f $wasWide, $handles.Progress.Width, $wasPane, $panel.Width)
+    Check 'status line grows with its panel' ($handles.Status.Width -gt $wasText) `
+        ("line {0} -> {1}, panel {2} -> {3}" -f $wasText, $handles.Status.Width, $wasPane, $panel.Width)
+    $panel.Width = $wasPane
+    $panel.Dock  = $wasDock
 
     # The reason is not a column any more - it is the tooltip, one line per mark
     # with the mark as its bullet. As a column every row opened with the same words

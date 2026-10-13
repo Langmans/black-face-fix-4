@@ -17,7 +17,8 @@ jobs:
   test:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      # v5 runs on Node 24; v4 is on Node 20, which the runners have deprecated.
+      - uses: actions/checkout@v5
 
       # Windows PowerShell 5.1, not pwsh: that is what the launchers start and
       # what the tool is written against - classes, WinForms and System.Drawing
